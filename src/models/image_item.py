@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Optional
 from PIL import Image
 from PyQt6.QtGui import QPixmap
+from PyQt6.QtCore import Qt
 
 
 class ImageItem:
@@ -43,8 +44,8 @@ class ImageItem:
                 if not pixmap.isNull():
                     self._thumbnail = pixmap.scaled(
                         size, size,
-                        aspectRatioMode=1,  # Qt.AspectRatioMode.KeepAspectRatio
-                        transformMode=1     # Qt.TransformationMode.SmoothTransformation
+                        Qt.AspectRatioMode.KeepAspectRatio,
+                        Qt.TransformationMode.SmoothTransformation
                     )
             except Exception as e:
                 print(f"Error creating thumbnail for {self.file_path}: {e}")

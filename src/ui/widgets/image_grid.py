@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
-                             QVBoxLayout, QFrame)
-from PyQt6.QtCore import Qt, pyqtSignal
+                             QVBoxLayout, QFrame, QApplication)
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QPixmap, QPalette
 
 
@@ -105,6 +105,10 @@ class ImageWidget(QFrame):
         super().__init__()
         self.image_item = image_item
         self.thumbnail_size = thumbnail_size
+        self.click_timer = QTimer()
+        self.click_timer.setSingleShot(True)
+        self.click_timer.timeout.connect(self._handle_single_click)
+        self.double_click_flag = False
         self.init_ui()
 
     def init_ui(self):
@@ -161,6 +165,14 @@ class ImageWidget(QFrame):
             self.setStyleSheet("QFrame { border: 3px solid lightgray; }")
             self.tag_label.setText("No tags")
 
+    def _handle_single_click(self):
+        """Handle single click after delay (if not double-clicked)."""
+        if self.double_click_flag:
+            # Reset flag and ignore this single click
+            self.double_click_flag = False
+            return
+        self.clicked.emit()
+
     def mousePressEvent(self, event):
         """Handle mouse press events."""
         if event.button() == Qt.MouseButton.LeftButton:
@@ -169,9 +181,16 @@ class ImageWidget(QFrame):
     def mouseReleaseEvent(self, event):
         """Handle mouse release events."""
         if event.button() == Qt.MouseButton.LeftButton:
-            self.clicked.emit()
+            # Use system's double-click interval
+            interval = QApplication.doubleClickInterval()
+            self.click_timer.start(interval + 50)  # Add 50ms buffer
 
     def mouseDoubleClickEvent(self, event):
         """Handle double click events."""
         if event.button() == Qt.MouseButton.LeftButton:
+            # Stop any pending single click timers
+            self.click_timer.stop()
+            # Set flag to ignore next single click
+            self.double_click_flag = True
+            # Emit double click signal
             self.double_clicked.emit()
