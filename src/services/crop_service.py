@@ -1,0 +1,111 @@
+import os
+from typing import Optional
+from PIL import Image
+import smartcrop
+
+
+class CropService:
+    """Service for cropping images using smartcrop library."""
+
+    def __init__(self, config):
+        self.config = config
+        self.smartcrop = smartcrop.SmartCrop()
+
+    def get_crop_dimensions(self, size_tag: str) -> Optional[tuple]:
+        """Get target width and height for a size tag."""
+        size_info = self.config.get_size_info(size_tag)
+        if not size_info:
+            return None
+
+        width = size_info.get("width")
+        height = size_info.get("height")
+
+        if width and height:
+            return (width, height)
+
+        return None
+
+    def crop_image(self, image_path: str, size_tag: str, output_path: str) -> bool:
+        """
+        Crop a single image using smartcrop based on size tag.
+        Returns True if successful, False otherwise.
+        """
+        dimensions = self.get_crop_dimensions(size_tag)
+        if not dimensions:
+            print(f"No dimensions found for size: {size_tag}")
+            return False
+
+        target_width, target_height = dimensions
+
+        try:
+            # Open image
+            img = Image.open(image_path)
+
+            # Convert to RGB if necessary (smartcrop requires RGB)
+            if img.mode != 'RGB':
+                img = img.convert('RGB')
+
+            # Use smartcrop to find best crop
+            result = self.smartcrop.crop(img, target_width, target_height)
+
+            # Extract crop coordinates
+            crop_box = result['top_crop']
+            x = crop_box['x']
+            y = crop_box['y']
+            width = crop_box['width']
+            height = crop_box['height']
+
+            # Crop the image
+            cropped_img = img.crop((x, y, x + width, y + height))
+
+            # Resize to exact dimensions
+            final_img = cropped_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
+
+            # Ensure output directory exists
+            os.makedirs(os.path.dirname(output_path), exist_ok=True)
+
+            # Save the cropped image
+            final_img.save(output_path, quality=95)
+
+            print(f"Cropped and saved: {output_path}")
+            return True
+
+        except Exception as e:
+            print(f"Error cropping {image_path}: {e}")
+            return False
+
+    def crop_project(self, project) -> int:
+        """
+        Crop all fully tagged images in a project.
+        Returns the number of successfully cropped images.
+        """
+        cropped_count = 0
+        tagged_images = project.get_tagged_images()
+
+        if not tagged_images:
+            print("No fully tagged images to crop")
+            return 0
+
+        for image_item in tagged_images:
+            # Build output path: output/AlbumName/Size/filename
+            filename = os.path.basename(image_item.file_path)
+            output_path = os.path.join(
+                project.output_folder,
+                image_item.album_tag,
+                image_item.size_tag,
+                filename
+            )
+
+            # Crop the image
+            success = self.crop_image(
+                image_item.file_path,
+                image_item.size_tag,
+                output_path
+            )
+
+            if success:
+                image_item.is_cropped = True
+                cropped_count += 1
+
+        print(f"Cropped {cropped_count}/{len(tagged_images)} images")
+        return cropped_count

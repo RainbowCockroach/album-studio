@@ -1,0 +1,13 @@
+# Development dependencies
+# Install with: pip install -r requirements-dev.txt
+
+# Include production dependencies
+-r requirements.txt
+
+# Build tools
+pyinstaller>=6.0.0
+
+# Code quality (optional)
+# pylint>=3.0.0
+# black>=23.0.0
+# mypy>=1.0.0

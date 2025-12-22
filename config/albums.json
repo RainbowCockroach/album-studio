@@ -1,0 +1,6 @@
+{
+  "Wedding Album": ["4x6", "5x7", "8x10"],
+  "Portrait Album": ["5x7", "8x10", "11x14"],
+  "Travel Album": ["4x6", "5x7"],
+  "Family Album": ["4x6", "5x7", "8x10"]
+}
