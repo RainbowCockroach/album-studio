@@ -1,3 +1,5 @@
+`pip install -r requirements.txt && python3 -m src.main`
+
 # Album Studio
 
 A PyQt6-based image sorting and processing application for organizing photos into albums with automatic renaming, tagging, and smart cropping capabilities.
@@ -16,11 +18,13 @@ A PyQt6-based image sorting and processing application for organizing photos int
 1. Clone or download this repository
 
 2. Install Python dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 If using Conda, you may need to install separately:
+
 ```bash
 pip install PyQt6 Pillow piexif smartcrop
 ```
@@ -40,6 +44,7 @@ The application will start in full screen mode.
 To create standalone executables for macOS or Windows, see [BUILD.md](BUILD.md) for detailed instructions.
 
 **Quick build:**
+
 ```bash
 # Install PyInstaller
 pip install pyinstaller
@@ -75,10 +80,12 @@ The built application will be in the `dist/` folder.
 ### Tagging Images
 
 1. **Select album and size** from the dropdowns at the bottom:
+
    - Choose an album name (e.g., "Wedding Album")
    - Choose a size (e.g., "4x6") - sizes are filtered based on the selected album
 
 2. **Apply tags to images**:
+
    - Single click on an image to apply the currently selected album and size tags
    - Double click on an image to clear all its tags
 
@@ -99,6 +106,7 @@ The built application will be in the `dist/` folder.
 ### Albums and Sizes
 
 Edit `config/albums.json` to define available albums and their allowed sizes:
+
 ```json
 {
   "Wedding Album": ["4x6", "5x7", "8x10"],
@@ -107,6 +115,7 @@ Edit `config/albums.json` to define available albums and their allowed sizes:
 ```
 
 Edit `config/sizes.json` to define size dimensions for cropping:
+
 ```json
 {
   "4x6": {
@@ -120,9 +129,10 @@ Edit `config/sizes.json` to define size dimensions for cropping:
 ### Settings
 
 Edit `config/settings.json` to customize:
+
 - `thumbnail_size`: Size of thumbnails in grid (default: 200)
 - `grid_columns`: Number of columns in grid (default: 5)
-- `date_format`: Format for renamed files (default: "%Y%m%d_%H%M%S")
+- `date_format`: Format for renamed files (default: "%Y%m%d\_%H%M%S")
 - `supported_formats`: Image file extensions to process
 
 ## Project Structure
@@ -158,14 +168,17 @@ album-studio/
 ## Troubleshooting
 
 **Images not loading?**
+
 - Make sure your input folder contains supported image formats (.jpg, .jpeg, .png)
 - Check that the folder path is correct
 
 **EXIF date not found?**
+
 - The app will fall back to file modification time if EXIF data is not available
 - Some images (screenshots, edited photos) may not have EXIF date information
 
 **Cropping fails?**
+
 - Ensure the image is large enough for the target crop size
 - Check that the size configuration is correct in sizes.json
 

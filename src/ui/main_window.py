@@ -65,6 +65,7 @@ class MainWindow(QMainWindow):
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
         self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
+        self.tag_panel.preview_requested.connect(self.on_preview_requested)
 
         # Image grid
         self.image_grid.image_clicked.connect(self.on_image_clicked)
@@ -195,6 +196,49 @@ class MainWindow(QMainWindow):
             f"Refreshed {len(self.current_project.images)} images.\n"
             f"Renamed {renamed_count} files."
         )
+
+    def on_preview_requested(self):
+        """Handle preview & adjust crops button click."""
+        if not self.current_project:
+            return
+
+        tagged_images = self.current_project.get_tagged_images()
+
+        if not tagged_images:
+            QMessageBox.warning(
+                self,
+                "No Tagged Images",
+                "No fully tagged images to preview. Please tag images first."
+            )
+            return
+
+        # Toggle preview mode
+        if self.image_grid.preview_mode:
+            # Exit preview mode
+            self.image_grid.exit_preview_mode()
+            self.tag_panel.preview_btn.setText("Preview & Adjust Crops")
+
+            # Save project with updated crop positions
+            self.project_manager.save_project(self.current_project)
+
+            QMessageBox.information(
+                self,
+                "Preview Closed",
+                f"Crop positions saved for {len(tagged_images)} images.\n"
+                "Click 'Crop All Tagged Images' to apply the crops."
+            )
+        else:
+            # Enter preview mode
+            self.image_grid.enter_preview_mode()
+            self.tag_panel.preview_btn.setText("Exit Preview Mode")
+
+            QMessageBox.information(
+                self,
+                "Preview Mode",
+                "Drag the crop rectangles to adjust the crop area for each image.\n"
+                "The aspect ratio is locked based on the size tag.\n\n"
+                "Click 'Exit Preview Mode' when done."
+            )
 
     def on_crop_requested(self):
         """Handle crop all tagged images button click."""

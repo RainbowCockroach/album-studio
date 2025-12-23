@@ -7,6 +7,7 @@ class TagPanel(QWidget):
 
     crop_requested = pyqtSignal()
     refresh_requested = pyqtSignal()
+    preview_requested = pyqtSignal()  # Preview & adjust crops
     tags_changed = pyqtSignal(str, str)  # Emits album, size
 
     def __init__(self, config):
@@ -42,6 +43,11 @@ class TagPanel(QWidget):
         self.refresh_btn = QPushButton("Refresh & Rename Images")
         self.refresh_btn.clicked.connect(self.on_refresh_clicked)
         layout.addWidget(self.refresh_btn)
+
+        # Preview button
+        self.preview_btn = QPushButton("Preview & Adjust Crops")
+        self.preview_btn.clicked.connect(self.on_preview_clicked)
+        layout.addWidget(self.preview_btn)
 
         # Crop button
         self.crop_btn = QPushButton("Crop All Tagged Images")
@@ -89,6 +95,10 @@ class TagPanel(QWidget):
         """Handle crop button click."""
         self.crop_requested.emit()
 
+    def on_preview_clicked(self):
+        """Handle preview button click."""
+        self.preview_requested.emit()
+
     def on_refresh_clicked(self):
         """Handle refresh button click."""
         self.refresh_requested.emit()
@@ -98,4 +108,5 @@ class TagPanel(QWidget):
         self.album_combo.setEnabled(enabled)
         self.size_combo.setEnabled(enabled)
         self.crop_btn.setEnabled(enabled)
+        self.preview_btn.setEnabled(enabled)
         self.refresh_btn.setEnabled(enabled)

@@ -1,6 +1,9 @@
 import os
 from typing import Optional
 from PIL import Image
+# Compatibility shim for older smartcrop library with Pillow 10+
+if not hasattr(Image, 'ANTIALIAS'):
+    Image.ANTIALIAS = Image.Resampling.LANCZOS
 import smartcrop
 
 
@@ -25,9 +28,10 @@ class CropService:
 
         return None
 
-    def crop_image(self, image_path: str, size_tag: str, output_path: str) -> bool:
+    def crop_image(self, image_path: str, size_tag: str, output_path: str, manual_crop_box: Optional[dict] = None) -> bool:
         """
-        Crop a single image using smartcrop based on size tag.
+        Crop a single image using manual crop box or smartcrop.
+        If manual_crop_box is provided, uses it; otherwise uses smartcrop.
         Returns True if successful, False otherwise.
         """
         dimensions = self.get_crop_dimensions(size_tag)
@@ -45,15 +49,25 @@ class CropService:
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 
-            # Use smartcrop to find best crop
-            result = self.smartcrop.crop(img, target_width, target_height)
+            # Determine crop coordinates
+            if manual_crop_box:
+                # Use manual crop position
+                x = manual_crop_box['x']
+                y = manual_crop_box['y']
+                width = manual_crop_box['width']
+                height = manual_crop_box['height']
+                print(f"Using manual crop: {x}, {y}, {width}, {height}")
+            else:
+                # Use smartcrop to find best crop
+                result = self.smartcrop.crop(img, target_width, target_height)
 
-            # Extract crop coordinates
-            crop_box = result['top_crop']
-            x = crop_box['x']
-            y = crop_box['y']
-            width = crop_box['width']
-            height = crop_box['height']
+                # Extract crop coordinates
+                crop_box = result['top_crop']
+                x = crop_box['x']
+                y = crop_box['y']
+                width = crop_box['width']
+                height = crop_box['height']
+                print(f"Using smart crop: {x}, {y}, {width}, {height}")
 
             # Crop the image
             cropped_img = img.crop((x, y, x + width, y + height))
@@ -96,11 +110,12 @@ class CropService:
                 filename
             )
 
-            # Crop the image
+            # Crop the image (use manual crop_box if available)
             success = self.crop_image(
                 image_item.file_path,
                 image_item.size_tag,
-                output_path
+                output_path,
+                manual_crop_box=image_item.crop_box
             )
 
             if success:

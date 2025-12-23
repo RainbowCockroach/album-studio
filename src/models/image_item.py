@@ -14,6 +14,7 @@ class ImageItem:
         self.size_tag: Optional[str] = None
         self.date_taken: Optional[datetime] = None
         self.is_cropped = False
+        self.crop_box: Optional[dict] = None  # {x, y, width, height} in image coordinates
         self._thumbnail: Optional[QPixmap] = None
 
     def set_tags(self, album: Optional[str] = None, size: Optional[str] = None):
@@ -27,6 +28,7 @@ class ImageItem:
         """Clear all tags from this image."""
         self.album_tag = None
         self.size_tag = None
+        self.crop_box = None  # Clear crop position when tags are cleared
 
     def has_tags(self) -> bool:
         """Check if image has any tags assigned."""
@@ -63,7 +65,8 @@ class ImageItem:
             "album_tag": self.album_tag,
             "size_tag": self.size_tag,
             "date_taken": self.date_taken.isoformat() if self.date_taken else None,
-            "is_cropped": self.is_cropped
+            "is_cropped": self.is_cropped,
+            "crop_box": self.crop_box
         }
 
     @classmethod
@@ -73,6 +76,7 @@ class ImageItem:
         item.album_tag = data.get("album_tag")
         item.size_tag = data.get("size_tag")
         item.is_cropped = data.get("is_cropped", False)
+        item.crop_box = data.get("crop_box")
 
         date_str = data.get("date_taken")
         if date_str:
