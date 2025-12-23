@@ -1,22 +1,14 @@
 {
   "4x6": {
-    "width": 1800,
-    "height": 1200,
     "ratio": 1.5
   },
   "5x7": {
-    "width": 2100,
-    "height": 1500,
     "ratio": 1.4
   },
   "8x10": {
-    "width": 3000,
-    "height": 2400,
     "ratio": 1.25
   },
   "11x14": {
-    "width": 3300,
-    "height": 2550,
     "ratio": 1.294
   }
 }

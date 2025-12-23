@@ -14,19 +14,38 @@ class CropService:
         self.config = config
         self.smartcrop = smartcrop.SmartCrop()
 
-    def get_crop_dimensions(self, size_tag: str) -> Optional[tuple]:
-        """Get target width and height for a size tag."""
+    def get_crop_dimensions(self, size_tag: str, image_width: int, image_height: int) -> Optional[tuple]:
+        """
+        Calculate target width and height for a size tag based on the image dimensions.
+        Returns the largest possible crop dimensions that fit within the image while maintaining the ratio.
+        """
         size_info = self.config.get_size_info(size_tag)
         if not size_info:
             return None
 
-        width = size_info.get("width")
-        height = size_info.get("height")
+        ratio = size_info.get("ratio")
+        if not ratio:
+            return None
 
-        if width and height:
-            return (width, height)
+        # Calculate the largest possible crop dimensions that fit within the image
+        # while maintaining the target ratio (ratio = width / height)
 
-        return None
+        # Try fitting by width (use full width, calculate height)
+        crop_width_by_width = image_width
+        crop_height_by_width = int(image_width / ratio)
+
+        # Try fitting by height (use full height, calculate width)
+        crop_height_by_height = image_height
+        crop_width_by_height = int(image_height * ratio)
+
+        # Choose the option that fits within the image bounds
+        if crop_height_by_width <= image_height:
+            # Fit by width
+            return (crop_width_by_width, crop_height_by_width)
+        else:
+            # Fit by height
+            return (crop_width_by_height, crop_height_by_height)
+
 
     def crop_image(self, image_path: str, size_tag: str, output_path: str, manual_crop_box: Optional[dict] = None) -> bool:
         """
@@ -34,20 +53,24 @@ class CropService:
         If manual_crop_box is provided, uses it; otherwise uses smartcrop.
         Returns True if successful, False otherwise.
         """
-        dimensions = self.get_crop_dimensions(size_tag)
-        if not dimensions:
-            print(f"No dimensions found for size: {size_tag}")
-            return False
-
-        target_width, target_height = dimensions
-
         try:
-            # Open image
+            # Open image first to get its dimensions
             img = Image.open(image_path)
 
             # Convert to RGB if necessary (smartcrop requires RGB)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
+
+            # Get image dimensions
+            image_width, image_height = img.size
+
+            # Calculate crop dimensions based on image size and ratio
+            dimensions = self.get_crop_dimensions(size_tag, image_width, image_height)
+            if not dimensions:
+                print(f"No dimensions found for size: {size_tag}")
+                return False
+
+            target_width, target_height = dimensions
 
             # Determine crop coordinates
             if manual_crop_box:

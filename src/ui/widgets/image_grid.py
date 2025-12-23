@@ -77,9 +77,10 @@ class ImageGrid(QWidget):
         """Clear all images from the grid."""
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
-            widget = item.widget()
-            if widget:
-                widget.deleteLater()
+            if item:
+                widget = item.widget()
+                if widget:
+                    widget.deleteLater()
 
         self.image_widgets.clear()
 
@@ -192,27 +193,30 @@ class ImageWidget(QFrame):
             return
         self.clicked.emit()
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, a0):
         """Handle mouse press events."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            self.click_pos = event.pos()
+        if a0:
+            if a0.button() == Qt.MouseButton.LeftButton:
+                self.click_pos = a0.pos()
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, a0):
         """Handle mouse release events."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            # Use system's double-click interval
-            interval = QApplication.doubleClickInterval()
-            self.click_timer.start(interval + 50)  # Add 50ms buffer
+        if a0:
+            if a0.button() == Qt.MouseButton.LeftButton:
+                # Use system's double-click interval
+                interval = QApplication.doubleClickInterval()
+                self.click_timer.start(interval + 50)  # Add 50ms buffer
 
-    def mouseDoubleClickEvent(self, event):
+    def mouseDoubleClickEvent(self, a0):
         """Handle double click events."""
-        if event.button() == Qt.MouseButton.LeftButton and not self.in_preview_mode:
-            # Stop any pending single click timers
-            self.click_timer.stop()
-            # Set flag to ignore next single click
-            self.double_click_flag = True
-            # Emit double click signal
-            self.double_clicked.emit()
+        if a0:
+            if a0.button() == Qt.MouseButton.LeftButton and not self.in_preview_mode:
+                # Stop any pending single click timers
+                self.click_timer.stop()
+                # Set flag to ignore next single click
+                self.double_click_flag = True
+                # Emit double click signal
+                self.double_clicked.emit()
 
     def enter_preview_mode(self, config):
         """Enter crop preview mode - show crop overlay."""
@@ -279,19 +283,41 @@ class ImageWidget(QFrame):
 
         # Otherwise, use smart crop to suggest initial position
         try:
-            # Get size dimensions
+            # Get size ratio
             size_info = config.get_size_info(self.image_item.size_tag)
             if not size_info:
                 self._set_centered_crop()
                 return
 
-            target_width = size_info.get('width', 1000)
-            target_height = size_info.get('height', 1000)
+            ratio = size_info.get('ratio')
+            if not ratio:
+                self._set_centered_crop()
+                return
 
             # Load image with PIL
             img = Image.open(self.image_item.file_path)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
+
+            # Get image dimensions
+            image_width, image_height = img.size
+
+            # Calculate the largest possible crop dimensions based on ratio
+            # Try fitting by width
+            crop_width_by_width = image_width
+            crop_height_by_width = int(image_width / ratio)
+
+            # Try fitting by height
+            crop_height_by_height = image_height
+            crop_width_by_height = int(image_height * ratio)
+
+            # Choose the option that fits within the image bounds
+            if crop_height_by_width <= image_height:
+                target_width = crop_width_by_width
+                target_height = crop_height_by_width
+            else:
+                target_width = crop_width_by_height
+                target_height = crop_height_by_height
 
             # Use smartcrop to find best crop
             sc = smartcrop.SmartCrop()
@@ -351,7 +377,8 @@ class ImageWidget(QFrame):
             overlay_height = int(crop_box['height'] * scale_y)
 
             # Apply to overlay
-            self.crop_overlay.set_crop_rect(overlay_x, overlay_y, overlay_width, overlay_height)
+            if self.crop_overlay:
+                self.crop_overlay.set_crop_rect(overlay_x, overlay_y, overlay_width, overlay_height)
 
         except Exception as e:
             print(f"Error applying crop box: {e}")
@@ -381,7 +408,8 @@ class ImageWidget(QFrame):
         x = pixmap_rect.x() + (pixmap_width - crop_width) // 2
         y = pixmap_rect.y() + (pixmap_height - crop_height) // 2
 
-        self.crop_overlay.set_crop_rect(x, y, crop_width, crop_height)
+        if self.crop_overlay:
+            self.crop_overlay.set_crop_rect(x, y, crop_width, crop_height)
 
         # Save to image item (convert to full image coordinates)
         self._save_crop_from_overlay()
@@ -393,39 +421,40 @@ class ImageWidget(QFrame):
     def _save_crop_from_overlay(self):
         """Save current overlay crop position to image item in full image coordinates."""
         try:
-            # Get overlay crop in thumbnail coordinates
-            overlay_crop = self.crop_overlay.get_crop_dict()
+            if self.crop_overlay:
+                # Get overlay crop in thumbnail coordinates
+                overlay_crop = self.crop_overlay.get_crop_dict()
 
-            # Load full image to get dimensions
-            full_pixmap = QPixmap(self.image_item.file_path)
-            if full_pixmap.isNull():
-                return
+                # Load full image to get dimensions
+                full_pixmap = QPixmap(self.image_item.file_path)
+                if full_pixmap.isNull():
+                    return
 
-            img_width = full_pixmap.width()
-            img_height = full_pixmap.height()
+                img_width = full_pixmap.width()
+                img_height = full_pixmap.height()
 
-            # Get thumbnail dimensions
-            thumbnail = self.image_item.get_thumbnail(self.thumbnail_size)
-            if not thumbnail:
-                return
+                # Get thumbnail dimensions
+                thumbnail = self.image_item.get_thumbnail(self.thumbnail_size)
+                if not thumbnail:
+                    return
 
-            thumb_width = thumbnail.width()
-            thumb_height = thumbnail.height()
+                thumb_width = thumbnail.width()
+                thumb_height = thumbnail.height()
 
-            # Get pixmap offset within label
-            pixmap_rect = self._get_pixmap_rect()
+                # Get pixmap offset within label
+                pixmap_rect = self._get_pixmap_rect()
 
-            # Calculate scale factors (inverse)
-            scale_x = img_width / thumb_width
-            scale_y = img_height / thumb_height
+                # Calculate scale factors (inverse)
+                scale_x = img_width / thumb_width
+                scale_y = img_height / thumb_height
 
-            # Convert to full image coordinates (subtract offset first)
-            self.image_item.crop_box = {
-                'x': int((overlay_crop['x'] - pixmap_rect.x()) * scale_x),
-                'y': int((overlay_crop['y'] - pixmap_rect.y()) * scale_y),
-                'width': int(overlay_crop['width'] * scale_x),
-                'height': int(overlay_crop['height'] * scale_y)
-            }
+                # Convert to full image coordinates (subtract offset first)
+                self.image_item.crop_box = {
+                    'x': int((overlay_crop['x'] - pixmap_rect.x()) * scale_x),
+                    'y': int((overlay_crop['y'] - pixmap_rect.y()) * scale_y),
+                    'width': int(overlay_crop['width'] * scale_x),
+                    'height': int(overlay_crop['height'] * scale_y)
+                }
 
         except Exception as e:
             print(f"Error saving crop position: {e}")

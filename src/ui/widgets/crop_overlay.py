@@ -55,7 +55,7 @@ class CropOverlay(QWidget):
             'height': self.crop_rect.height()
         }
 
-    def paintEvent(self, event):
+    def paintEvent(self, a0):
         """Draw the crop overlay."""
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -110,55 +110,58 @@ class CropOverlay(QWidget):
             )
             painter.fillRect(handle_rect, handle_color)
 
-    def mousePressEvent(self, event):
+    def mousePressEvent(self, a0):
         """Start dragging the crop rectangle."""
-        if event.button() == Qt.MouseButton.LeftButton:
-            if self.crop_rect.contains(event.pos()):
-                self.dragging = True
-                self.drag_start_pos = event.pos()
-                self.rect_start_pos = QRect(self.crop_rect)
+        if a0:
+            if a0.button() == Qt.MouseButton.LeftButton:
+                if self.crop_rect.contains(a0.pos()):
+                    self.dragging = True
+                    self.drag_start_pos = a0.pos()
+                    self.rect_start_pos = QRect(self.crop_rect)
 
-    def mouseMoveEvent(self, event):
+    def mouseMoveEvent(self, a0):
         """Drag the crop rectangle."""
-        if self.dragging:
-            delta = event.pos() - self.drag_start_pos
+        if a0:
+            if self.dragging:
+                delta = a0.pos() - self.drag_start_pos
 
-            # Calculate new position
-            new_rect = QRect(self.rect_start_pos)
-            new_rect.translate(delta)
+                # Calculate new position
+                new_rect = QRect(self.rect_start_pos)
+                new_rect.translate(delta)
 
-            # Constrain to image bounds - ensure rectangle stays fully within image area
-            # Check left edge
-            if new_rect.left() < self.image_bounds.left():
-                new_rect.moveLeft(self.image_bounds.left())
-            # Check top edge
-            if new_rect.top() < self.image_bounds.top():
-                new_rect.moveTop(self.image_bounds.top())
-            # Check right edge - ensure right side doesn't exceed image right
-            if new_rect.right() > self.image_bounds.right():
-                new_rect.moveLeft(self.image_bounds.right() - new_rect.width())
-            # Check bottom edge - ensure bottom doesn't exceed image bottom
-            if new_rect.bottom() > self.image_bounds.bottom():
-                new_rect.moveTop(self.image_bounds.bottom() - new_rect.height())
+                # Constrain to image bounds - ensure rectangle stays fully within image area
+                # Check left edge
+                if new_rect.left() < self.image_bounds.left():
+                    new_rect.moveLeft(self.image_bounds.left())
+                # Check top edge
+                if new_rect.top() < self.image_bounds.top():
+                    new_rect.moveTop(self.image_bounds.top())
+                # Check right edge - ensure right side doesn't exceed image right
+                if new_rect.right() > self.image_bounds.right():
+                    new_rect.moveLeft(self.image_bounds.right() - new_rect.width())
+                # Check bottom edge - ensure bottom doesn't exceed image bottom
+                if new_rect.bottom() > self.image_bounds.bottom():
+                    new_rect.moveTop(self.image_bounds.bottom() - new_rect.height())
 
-            self.crop_rect = new_rect
-            self.update()
-        else:
-            # Change cursor if over crop rect
-            if self.crop_rect.contains(event.pos()):
-                self.setCursor(Qt.CursorShape.SizeAllCursor)
+                self.crop_rect = new_rect
+                self.update()
             else:
-                self.setCursor(Qt.CursorShape.ArrowCursor)
+                # Change cursor if over crop rect
+                if self.crop_rect.contains(a0.pos()):
+                    self.setCursor(Qt.CursorShape.SizeAllCursor)
+                else:
+                    self.setCursor(Qt.CursorShape.ArrowCursor)
 
-    def mouseReleaseEvent(self, event):
+    def mouseReleaseEvent(self, a0):
         """Stop dragging and emit signal."""
-        if event.button() == Qt.MouseButton.LeftButton and self.dragging:
-            self.dragging = False
-            self.crop_changed.emit(self.get_crop_dict())
+        if a0:
+            if a0.button() == Qt.MouseButton.LeftButton and self.dragging:
+                self.dragging = False
+                self.crop_changed.emit(self.get_crop_dict())
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, a0):
         """Handle widget resize - maintain crop rectangle within image bounds."""
-        super().resizeEvent(event)
+        super().resizeEvent(a0)
 
         # Ensure crop rectangle is within image bounds
         # Constrain width and height if larger than image bounds
