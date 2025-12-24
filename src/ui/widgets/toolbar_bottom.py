@@ -2,12 +2,13 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton, QLabel
 from PyQt6.QtCore import pyqtSignal
 
 
-class TagPanel(QWidget):
+class ToolbarBottom(QWidget):
     """Bottom panel with tag selectors and action buttons."""
 
-    crop_requested = pyqtSignal()
+    crop_requested = pyqtSignal()  # Enter preview mode
+    save_requested = pyqtSignal()  # Save and crop images
+    cancel_requested = pyqtSignal()  # Cancel preview mode
     refresh_requested = pyqtSignal()
-    preview_requested = pyqtSignal()  # Preview & adjust crops
     config_requested = pyqtSignal()  # Config button clicked
     tags_changed = pyqtSignal(str, str)  # Emits album, size
 
@@ -19,6 +20,16 @@ class TagPanel(QWidget):
     def init_ui(self):
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
+
+        # Config button
+        self.config_btn = QPushButton("Config")
+        self.config_btn.setToolTip("Configure size groups and sizes")
+        self.config_btn.clicked.connect(self.on_config_clicked)
+        layout.addWidget(self.config_btn)
+
+        # ***************** Spacer *****************
+        layout.addStretch()
+        # ***************** Spacer *****************
 
         # Album selector
         size_group_label = QLabel("Size group:")
@@ -35,39 +46,49 @@ class TagPanel(QWidget):
 
         self.size_combo = QComboBox()
         self.size_combo.setMinimumWidth(100)
-        self.size_combo.currentTextChanged.connect(self.on_tags_changed)
+        self.size_combo.currentTextChanged.connect(self.on_size_changed)
         layout.addWidget(self.size_combo)
-
-        # Config button
-        self.config_btn = QPushButton("Config")
-        self.config_btn.setToolTip("Configure size groups and sizes")
-        self.config_btn.clicked.connect(self.on_config_clicked)
-        layout.addWidget(self.config_btn)
-
-        layout.addStretch()
 
         # Refresh button
         self.refresh_btn = QPushButton("Refresh & Rename Images")
         self.refresh_btn.clicked.connect(self.on_refresh_clicked)
         layout.addWidget(self.refresh_btn)
 
-        # Preview button
-        self.preview_btn = QPushButton("Preview & Adjust Crops")
-        self.preview_btn.clicked.connect(self.on_preview_clicked)
-        layout.addWidget(self.preview_btn)
-
-        # Crop button
-        self.crop_btn = QPushButton("Crop All Tagged Images")
+        # Crop button (shows preview mode)
+        self.crop_btn = QPushButton("Crop")
         self.crop_btn.clicked.connect(self.on_crop_clicked)
         layout.addWidget(self.crop_btn)
+
+        # Cancel button (hidden initially)
+        self.cancel_btn = QPushButton("Cancel")
+        self.cancel_btn.clicked.connect(self.on_cancel_clicked)
+        self.cancel_btn.hide()
+        layout.addWidget(self.cancel_btn)
+
+        # Save button (hidden initially)
+        self.save_btn = QPushButton("Save")
+        self.save_btn.clicked.connect(self.on_save_clicked)
+        self.save_btn.hide()
+        layout.addWidget(self.save_btn)
 
         self.setLayout(layout)
 
         # Initialize album list
         self.load_size_group()
 
+    def set_enabled(self, enabled: bool):
+        """Enable or disable all controls."""
+        self.size_group_combo.setEnabled(enabled)
+        self.size_combo.setEnabled(enabled)
+        self.config_btn.setEnabled(enabled)
+        self.crop_btn.setEnabled(enabled)
+        self.cancel_btn.setEnabled(enabled)
+        self.save_btn.setEnabled(enabled)
+        self.refresh_btn.setEnabled(enabled)
+
+    #region | Group + size dropdowns
     def load_size_group(self):
-        """Load album list from config."""
+        """Load size group list from config."""
         size_group_names = self.config.get_size_group_names()
         self.size_group_combo.clear()
         self.size_group_combo.addItems(size_group_names)
@@ -88,42 +109,57 @@ class TagPanel(QWidget):
             # Add item with alias as display text, size_ratio as user data
             self.size_combo.addItem(alias, userData=size_ratio)
 
-        self.on_tags_changed()
-
-    def on_tags_changed(self):
+        self.on_size_changed()
+    
+    def on_size_changed(self):
         """Emit signal when tags change."""
         album = self.size_group_combo.currentText()
         size = self.size_combo.currentText()
         self.tags_changed.emit(album, size)
-
+    
     def get_selected_tags(self) -> tuple:
         """Get currently selected album and size ratio."""
         album = self.size_group_combo.currentText()
         # Get the size ratio from user data, not the display text (alias)
         size_ratio = self.size_combo.currentData()
         return (album, size_ratio if size_ratio else "")
+    #endregion
 
     def on_crop_clicked(self):
-        """Handle crop button click."""
+        """Handle crop button click - enter preview mode."""
         self.crop_requested.emit()
+        self.show_preview_mode_buttons()
 
-    def on_preview_clicked(self):
-        """Handle preview button click."""
-        self.preview_requested.emit()
+    def on_cancel_clicked(self):
+        """Handle cancel button click - exit preview without saving."""
+        self.cancel_requested.emit()
+        self.show_normal_mode_buttons()
 
+    def on_save_clicked(self):
+        """Handle save button click - crop and save images."""
+        self.save_requested.emit()
+        self.show_normal_mode_buttons()
+
+    def show_preview_mode_buttons(self):
+        """Show Cancel and Save buttons, hide Crop button."""
+        self.crop_btn.hide()
+        self.cancel_btn.show()
+        self.save_btn.show()
+
+    def show_normal_mode_buttons(self):
+        """Show Crop button, hide Cancel and Save buttons."""
+        self.cancel_btn.hide()
+        self.save_btn.hide()
+        self.crop_btn.show()
+
+    #region | Refresh button
     def on_refresh_clicked(self):
         """Handle refresh button click."""
         self.refresh_requested.emit()
+    #endregion
 
+    #region | Config button
     def on_config_clicked(self):
         """Handle config button click."""
         self.config_requested.emit()
-
-    def set_enabled(self, enabled: bool):
-        """Enable or disable all controls."""
-        self.size_group_combo.setEnabled(enabled)
-        self.size_combo.setEnabled(enabled)
-        self.config_btn.setEnabled(enabled)
-        self.crop_btn.setEnabled(enabled)
-        self.preview_btn.setEnabled(enabled)
-        self.refresh_btn.setEnabled(enabled)
+    #endregion

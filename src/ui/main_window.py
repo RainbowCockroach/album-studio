@@ -1,9 +1,9 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
                              QMessageBox, QApplication)
 from PyQt6.QtCore import Qt
-from .widgets.project_toolbar import ProjectToolbar
+from .widgets.toolbar_top import ProjectToolbar
 from .widgets.image_grid import ImageGrid
-from .widgets.tag_panel import TagPanel
+from .widgets.toolbar_bottom import ToolbarBottom
 from ..models.config import Config
 from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
@@ -41,7 +41,7 @@ class MainWindow(QMainWindow):
         # Create widgets
         self.project_toolbar = ProjectToolbar()
         self.image_grid = ImageGrid(self.config)
-        self.tag_panel = TagPanel(self.config)
+        self.tag_panel = ToolbarBottom(self.config)
 
         # Add widgets to layout
         layout.addWidget(self.project_toolbar)
@@ -64,8 +64,9 @@ class MainWindow(QMainWindow):
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
+        self.tag_panel.save_requested.connect(self.on_save_requested)
+        self.tag_panel.cancel_requested.connect(self.on_cancel_requested)
         self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
-        self.tag_panel.preview_requested.connect(self.on_preview_requested)
         self.tag_panel.config_requested.connect(self.on_config_requested)
 
         # Image grid
@@ -198,64 +199,8 @@ class MainWindow(QMainWindow):
             f"Renamed {renamed_count} files."
         )
 
-    def on_preview_requested(self):
-        """Handle preview & adjust crops button click."""
-        if not self.current_project:
-            return
-
-        tagged_images = self.current_project.get_tagged_images()
-
-        if not tagged_images:
-            QMessageBox.warning(
-                self,
-                "No Tagged Images",
-                "No fully tagged images to preview. Please tag images first."
-            )
-            return
-
-        # Toggle preview mode
-        if self.image_grid.preview_mode:
-            # Exit preview mode
-            self.image_grid.exit_preview_mode()
-            self.tag_panel.preview_btn.setText("Preview & Adjust Crops")
-
-            # Save project with updated crop positions
-            self.project_manager.save_project(self.current_project)
-
-            QMessageBox.information(
-                self,
-                "Preview Closed",
-                f"Crop positions saved for {len(tagged_images)} images.\n"
-                "Click 'Crop All Tagged Images' to apply the crops."
-            )
-        else:
-            # Enter preview mode
-            self.image_grid.enter_preview_mode()
-            self.tag_panel.preview_btn.setText("Exit Preview Mode")
-
-            QMessageBox.information(
-                self,
-                "Preview Mode",
-                "Drag the crop rectangles to adjust the crop area for each image.\n"
-                "The aspect ratio is locked based on the size tag.\n\n"
-                "Click 'Exit Preview Mode' when done."
-            )
-
-    def on_config_requested(self):
-        """Handle config button click - open configuration dialog."""
-        from .dialogs.config_dialog import ConfigDialog
-
-        dialog = ConfigDialog(self.config, self.project_manager, self)
-        if dialog.exec() == dialog.DialogCode.Accepted:
-            # Reload UI components after config changes
-            self.tag_panel.load_size_group()
-
-            # Refresh the current project to update display if needed
-            if self.current_project:
-                self.image_grid.set_project(self.current_project)
-
     def on_crop_requested(self):
-        """Handle crop all tagged images button click."""
+        """Handle crop button click - enter preview mode."""
         if not self.current_project:
             return
 
@@ -269,17 +214,38 @@ class MainWindow(QMainWindow):
             )
             return
 
-        # Ask for confirmation
-        reply = QMessageBox.question(
+        # Enter preview mode
+        self.image_grid.enter_preview_mode()
+
+        QMessageBox.information(
             self,
-            "Crop Images",
-            f"This will crop {len(tagged_images)} tagged images.\n\n"
-            "Continue?",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            "Crop Preview",
+            "Drag the crop rectangles to adjust the crop area for each image.\n"
+            "The aspect ratio is locked based on the size tag.\n\n"
+            "Click 'Save' to crop and save images, or 'Cancel' to exit without cropping."
         )
 
-        if reply != QMessageBox.StandardButton.Yes:
+    def on_cancel_requested(self):
+        """Handle cancel button click - exit preview mode without saving."""
+        if not self.current_project:
             return
+
+        # Exit preview mode without saving crop positions
+        self.image_grid.exit_preview_mode()
+
+    def on_save_requested(self):
+        """Handle save button click - crop and save all tagged images."""
+        if not self.current_project:
+            return
+
+        tagged_images = self.current_project.get_tagged_images()
+
+        if not tagged_images:
+            return
+
+        # Exit preview mode and save crop positions
+        self.image_grid.exit_preview_mode()
+        self.project_manager.save_project(self.current_project)
 
         # Show progress
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
@@ -299,6 +265,19 @@ class MainWindow(QMainWindow):
             )
         finally:
             QApplication.restoreOverrideCursor()
+
+    def on_config_requested(self):
+        """Handle config button click - open configuration dialog."""
+        from .dialogs.config_dialog import ConfigDialog
+
+        dialog = ConfigDialog(self.config, self.project_manager, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            # Reload UI components after config changes
+            self.tag_panel.load_size_group()
+
+            # Refresh the current project to update display if needed
+            if self.current_project:
+                self.image_grid.set_project(self.current_project)
 
     def closeEvent(self, event):
         """Handle window close event."""
