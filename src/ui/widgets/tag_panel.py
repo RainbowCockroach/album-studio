@@ -8,6 +8,7 @@ class TagPanel(QWidget):
     crop_requested = pyqtSignal()
     refresh_requested = pyqtSignal()
     preview_requested = pyqtSignal()  # Preview & adjust crops
+    config_requested = pyqtSignal()  # Config button clicked
     tags_changed = pyqtSignal(str, str)  # Emits album, size
 
     def __init__(self, config):
@@ -20,13 +21,13 @@ class TagPanel(QWidget):
         layout.setContentsMargins(10, 10, 10, 10)
 
         # Album selector
-        album_label = QLabel("Album:")
-        layout.addWidget(album_label)
+        size_group_label = QLabel("Size group:")
+        layout.addWidget(size_group_label)
 
-        self.album_combo = QComboBox()
-        self.album_combo.setMinimumWidth(150)
-        self.album_combo.currentTextChanged.connect(self.on_album_changed)
-        layout.addWidget(self.album_combo)
+        self.size_group_combo = QComboBox()
+        self.size_group_combo.setMinimumWidth(150)
+        self.size_group_combo.currentTextChanged.connect(self.on_size_group_changed)
+        layout.addWidget(self.size_group_combo)
 
         # Size selector
         size_label = QLabel("Size:")
@@ -36,6 +37,12 @@ class TagPanel(QWidget):
         self.size_combo.setMinimumWidth(100)
         self.size_combo.currentTextChanged.connect(self.on_tags_changed)
         layout.addWidget(self.size_combo)
+
+        # Config button
+        self.config_btn = QPushButton("Config")
+        self.config_btn.setToolTip("Configure size groups and sizes")
+        self.config_btn.clicked.connect(self.on_config_clicked)
+        layout.addWidget(self.config_btn)
 
         layout.addStretch()
 
@@ -57,39 +64,44 @@ class TagPanel(QWidget):
         self.setLayout(layout)
 
         # Initialize album list
-        self.load_albums()
+        self.load_size_group()
 
-    def load_albums(self):
+    def load_size_group(self):
         """Load album list from config."""
-        album_names = self.config.get_album_names()
-        self.album_combo.clear()
-        self.album_combo.addItems(album_names)
+        size_group_names = self.config.get_size_group_names()
+        self.size_group_combo.clear()
+        self.size_group_combo.addItems(size_group_names)
 
-    def on_album_changed(self, album_name: str):
-        """Handle album selection change - update size dropdown."""
-        if not album_name:
+    def on_size_group_changed(self, size_group_name: str):
+        """Handle size group selection change - update size dropdown with aliases."""
+        if not size_group_name:
             self.size_combo.clear()
             return
 
-        # Get available sizes for this album
-        sizes = self.config.get_sizes_for_album(album_name)
+        # Get sizes with aliases from config
+        sizes_with_aliases = self.config.get_sizes_with_aliases_for_group(size_group_name)
+
         self.size_combo.clear()
-        self.size_combo.addItems(sizes)
+        for size_data in sizes_with_aliases:
+            size_ratio = size_data["ratio"]
+            alias = size_data["alias"]
+            # Add item with alias as display text, size_ratio as user data
+            self.size_combo.addItem(alias, userData=size_ratio)
 
         self.on_tags_changed()
 
     def on_tags_changed(self):
         """Emit signal when tags change."""
-        album = self.album_combo.currentText()
+        album = self.size_group_combo.currentText()
         size = self.size_combo.currentText()
         self.tags_changed.emit(album, size)
 
     def get_selected_tags(self) -> tuple:
-        """Get currently selected album and size."""
-        return (
-            self.album_combo.currentText(),
-            self.size_combo.currentText()
-        )
+        """Get currently selected album and size ratio."""
+        album = self.size_group_combo.currentText()
+        # Get the size ratio from user data, not the display text (alias)
+        size_ratio = self.size_combo.currentData()
+        return (album, size_ratio if size_ratio else "")
 
     def on_crop_clicked(self):
         """Handle crop button click."""
@@ -103,10 +115,15 @@ class TagPanel(QWidget):
         """Handle refresh button click."""
         self.refresh_requested.emit()
 
+    def on_config_clicked(self):
+        """Handle config button click."""
+        self.config_requested.emit()
+
     def set_enabled(self, enabled: bool):
         """Enable or disable all controls."""
-        self.album_combo.setEnabled(enabled)
+        self.size_group_combo.setEnabled(enabled)
         self.size_combo.setEnabled(enabled)
+        self.config_btn.setEnabled(enabled)
         self.crop_btn.setEnabled(enabled)
         self.preview_btn.setEnabled(enabled)
         self.refresh_btn.setEnabled(enabled)

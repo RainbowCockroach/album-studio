@@ -101,3 +101,33 @@ class ProjectManager:
         """Save a specific project (updates projects.json)."""
         # Project is already in the list, just save all
         self.save_projects()
+
+    def clear_tags_for_deleted_sizes(self, deleted_size_ids: set, deleted_size_groups: set):
+        """Clear tags from images if their size or size group was deleted.
+
+        Args:
+            deleted_size_ids: Set of size IDs that were deleted
+            deleted_size_groups: Set of size group names that were deleted
+        """
+        total_cleared = 0
+
+        for project in self.projects:
+            for image_item in project.images:
+                # Clear if size group was deleted
+                if image_item.album in deleted_size_groups:
+                    if image_item.album or image_item.size_id:
+                        image_item.album = None
+                        image_item.size_id = None
+                        total_cleared += 1
+                # Clear if size was deleted
+                elif image_item.size_id in deleted_size_ids:
+                    if image_item.size_id:
+                        image_item.size_id = None
+                        total_cleared += 1
+
+            # Save project if any tags were cleared
+            if total_cleared > 0:
+                self.save_project(project)
+
+        if total_cleared > 0:
+            print(f"Cleared tags from {total_cleared} images due to deleted sizes/groups")

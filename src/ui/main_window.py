@@ -66,6 +66,7 @@ class MainWindow(QMainWindow):
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
         self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
         self.tag_panel.preview_requested.connect(self.on_preview_requested)
+        self.tag_panel.config_requested.connect(self.on_config_requested)
 
         # Image grid
         self.image_grid.image_clicked.connect(self.on_image_clicked)
@@ -239,6 +240,19 @@ class MainWindow(QMainWindow):
                 "The aspect ratio is locked based on the size tag.\n\n"
                 "Click 'Exit Preview Mode' when done."
             )
+
+    def on_config_requested(self):
+        """Handle config button click - open configuration dialog."""
+        from .dialogs.config_dialog import ConfigDialog
+
+        dialog = ConfigDialog(self.config, self.project_manager, self)
+        if dialog.exec() == dialog.DialogCode.Accepted:
+            # Reload UI components after config changes
+            self.tag_panel.load_size_group()
+
+            # Refresh the current project to update display if needed
+            if self.current_project:
+                self.image_grid.set_project(self.current_project)
 
     def on_crop_requested(self):
         """Handle crop all tagged images button click."""

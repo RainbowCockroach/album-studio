@@ -79,33 +79,33 @@ The built application will be in the `dist/` folder.
 
 ### Tagging Images
 
-1. **Select album and size** from the dropdowns at the bottom:
+1. **Select size group and size** from the dropdowns at the bottom:
 
-   - Choose an album name (e.g., "Wedding Album")
-   - Choose a size (e.g., "4x6") - sizes are filtered based on the selected album
+   - Choose a size group name (e.g., "Wedding Album")
+   - Choose a size (e.g., "4x6") - sizes are filtered based on the selected size group
 
 2. **Apply tags to images**:
 
-   - Single click on an image to apply the currently selected album and size tags
+   - Single click on an image to apply the currently selected size group and size tags
    - Double click on an image to clear all its tags
 
 3. **Visual indicators**:
    - Gray border: No tags
-   - Orange border: Partially tagged (only album or only size)
-   - Green border: Fully tagged (both album and size)
+   - Orange border: Partially tagged (only size group or only size)
+   - Green border: Fully tagged (both size group and size)
 
 ### Cropping Images
 
-1. Tag all images with both album and size
+1. Tag all images with both size group and size
 2. Click "Crop All Tagged Images" button
 3. Confirm the operation
-4. Cropped images will be saved to: `output_folder/AlbumName/Size/filename.jpg`
+4. Cropped images will be saved to: `output_folder/SizeGroupName/Size/filename.jpg`
 
 ## Configuration
 
-### Albums and Sizes
+### Size group and Sizes
 
-Edit `config/albums.json` to define available albums and their allowed sizes:
+Edit `config/size_group.json` to define available size group and their allowed sizes:
 
 ```json
 {
@@ -160,10 +160,9 @@ album-studio/
 ## Tips
 
 - Keep your images organized in separate folders for each project
-- Use descriptive album names that match your physical albums
 - The smart crop algorithm will find the most important part of the image automatically
 - Tagged status is saved automatically when you tag/untag images
-- You can edit config files to add new albums or sizes without restarting the app (just create a new project to reload config)
+- You can edit config files to add new size group or sizes without restarting the app (just create a new project to reload config)
 
 ## Troubleshooting
 
