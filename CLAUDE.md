@@ -45,20 +45,22 @@ Output: `dist/AlbumStudio.app` (macOS) or `dist/AlbumStudio/` (Windows)
 
 ## Testing & Debugging
 
-**Test image loading:**
+No automated test suite currently exists. Manual testing workflow:
 
-```bash
-python3 test_image_loading.py
-```
+1. Run the app: `python3 -m src.main`
+2. Create a test project with sample images
+3. Test tagging, preview mode, and cropping workflows
 
-This diagnostic script checks:
+## User Workflow
 
-- Configuration loading
-- Project discovery
-- Image file detection
-- Thumbnail generation with PyQt6
+The typical user workflow is:
 
-Use when troubleshooting "images not displaying" issues.
+1. **Create Project**: Click "New Project", specify name, input folder (original images), and output folder (for cropped images)
+2. **Load Images**: Click "Refresh & Rename Images" to scan input folder and auto-rename by EXIF date
+3. **Tag Images**: Select size group and size from dropdowns, then click images to tag them (double-click to clear tags)
+4. **Preview Crops** (optional): Click "Preview & Adjust Crops" to see and adjust crop positions before final cropping
+5. **Crop Images**: Click "Crop All Tagged Images" to batch process all tagged images
+6. **Configure Size Groups** (as needed): Click "Configure Size Groups" to add/remove/rename size groups and their sizes
 
 ## Architecture
 
@@ -82,8 +84,10 @@ The codebase follows a clean separation of concerns:
 
 - `MainWindow`: Orchestrates the three main UI sections
 - `widgets/ProjectToolbar`: Top bar with project dropdown + "New Project" button
-- `widgets/ImageGrid`: Center grid displaying image thumbnails
+- `widgets/ImageGrid`: Center grid displaying image thumbnails with preview mode support
 - `widgets/TagPanel`: Bottom bar with size_group/size dropdowns + action buttons
+- `widgets/CropOverlay`: Draggable crop rectangle overlay for preview mode
+- `dialogs/ConfigDialog`: GUI for managing size groups and their associated sizes
 
 ### Signal/Slot Architecture
 
@@ -100,7 +104,9 @@ ImageGrid
 
 TagPanel
   ├─ crop_requested() → MainWindow.on_crop_requested()
-  └─ refresh_requested() → MainWindow.on_refresh_requested()
+  ├─ refresh_requested() → MainWindow.on_refresh_requested()
+  ├─ preview_requested() → MainWindow.on_preview_requested()
+  └─ config_requested() → MainWindow.on_config_requested()
 ```
 
 All widget-to-widget communication goes through MainWindow - widgets never talk directly to each other.
@@ -125,34 +131,51 @@ All widget-to-widget communication goes through MainWindow - widgets never talk 
 
 **Cropping workflow:**
 
-1. `CropService.crop_project()` gets all fully-tagged images
-2. For each: `CropService.crop_image()` uses smartcrop to find best crop
-3. Saves to `output_folder/SizeGroupName/Size/filename.jpg`
-4. Marks `ImageItem.is_cropped = True`
+1. User clicks "Preview & Adjust Crops" to enter preview mode
+2. `ImageGrid.enter_preview_mode()` displays `CropOverlay` widgets on tagged images
+3. User drags crop rectangles to adjust crop positions (aspect ratio locked to size tag)
+4. On exit, crop positions saved to `ImageItem.crop_box` dict with {x, y, width, height}
+5. User clicks "Crop All Tagged Images"
+6. `CropService.crop_project()` gets all fully-tagged images
+7. For each: `CropService.crop_image()` uses `crop_box` if set, otherwise smartcrop to find best crop
+8. Saves to `output_folder/SizeGroupName/Size/filename.jpg`
+9. Marks `ImageItem.is_cropped = True`
 
 ### Configuration System
 
 Three JSON files in `config/`:
 
-**`size_groups.json`**: Maps size_group names to allowed sizes
+**`size_group.json`**: Maps size group names to their allowed sizes with ratios and aliases
 
 ```json
 {
-  "Wedding Size Group": ["4x6", "5x7", "8x10"]
+  "A5": {
+    "sizes": [
+      { "ratio": "9x6", "alias": "9x6" },
+      { "ratio": "5x7", "alias": "5x7" }
+    ]
+  }
 }
 ```
 
-**`sizes.json`**: Defines crop dimensions
+**`sizes.json`**: Defines aspect ratios for each size (deprecated for width/height but ratio still used)
 
 ```json
 {
-  "4x6": { "width": 1800, "height": 1200, "ratio": 1.5 }
+  "4x6": { "ratio": 1.5 },
+  "5x7": { "ratio": 1.4 }
 }
 ```
 
 **`settings.json`**: App preferences (thumbnail size, grid columns, date format, supported file extensions)
 
-Config is loaded once at startup by `Config` class. To reload config, users must create a new project (design limitation).
+**Configuration Management:**
+
+- Config loaded at startup by `Config` class with automatic migration from old format
+- Users can edit size groups/sizes via GUI: Click "Configure Size Groups" button in TagPanel
+- `ConfigDialog` provides split-panel interface: size groups (left) and their sizes (right)
+- Changes are saved immediately to `size_group.json`
+- Config changes automatically update projects and reload affected tags
 
 ## PyQt6 Specifics
 
@@ -170,13 +193,15 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 **Double-click handling:** The `ImageWidget` uses a timer-based approach to distinguish single vs double clicks. When `mouseReleaseEvent` fires, it starts a timer. If `mouseDoubleClickEvent` fires before timeout, it cancels the timer and sets a flag. This prevents single-click from executing after double-click.
 
+**Preview mode interaction:** When in preview mode, `ImageGrid` overlays `CropOverlay` widgets on each tagged image. The overlay uses `WA_TransparentForMouseEvents` set to False to capture mouse events for dragging. Crop rectangles are constrained to image bounds and maintain aspect ratio based on the size tag's ratio.
+
 ## Common Issues
 
 **Images not displaying:**
 
 - Check Qt enum usage in `ImageItem.get_thumbnail()`
-- Run `python3 test_image_loading.py` to diagnose
-- Verify supported formats in config match actual file extensions
+- Verify supported formats in `config/settings.json` match actual file extensions
+- Check console output for errors during `Project.load_images()`
 
 **Double-click not clearing tags:**
 
@@ -192,7 +217,13 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 - Config files must exist in `config/` directory
 - Check JSON syntax if config seems ignored
-- Config is cached - restart app to reload changes
+- Use "Configure Size Groups" button to edit configs via GUI (preferred over manual editing)
+
+**Preview mode issues:**
+
+- Crop overlay not draggable: Check `WA_TransparentForMouseEvents` is set to False
+- Crop rect goes outside image: Verify `set_image_bounds()` is called with correct bounds
+- Aspect ratio wrong: Ensure size tag has valid ratio in `sizes.json`
 
 ## Output Structure
 
