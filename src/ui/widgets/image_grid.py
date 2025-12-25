@@ -19,6 +19,8 @@ class ImageGrid(QWidget):
         self.columns = config.get_setting("grid_columns", 5)
         self.image_widgets = {}  # Map ImageItem to ImageWidget
         self.preview_mode = False
+        self.selection_mode = False
+        self.selected_items = set()
         self.init_ui()
 
     def init_ui(self):
@@ -50,6 +52,7 @@ class ImageGrid(QWidget):
     def load_images(self):
         """Load images from current project into grid."""
         self.clear_grid()
+        self.selected_items.clear()  # Clear selection on reload
 
         if not self.current_project:
             return
@@ -85,22 +88,51 @@ class ImageGrid(QWidget):
         self.image_widgets.clear()
 
     def refresh_display(self):
-        """Refresh the display of all images (update borders based on tags)."""
+        """Refresh the display of all images (update borders based on tags/selection)."""
         for image_item, widget in self.image_widgets.items():
+            is_selected = image_item in self.selected_items
+            widget.set_selected(is_selected)
             widget.update_border()
+
+    def toggle_selection_mode(self, enabled: bool):
+        """Enable or disable selection mode."""
+        self.selection_mode = enabled
+        if not enabled:
+            self.selected_items.clear()
+        self.refresh_display()
+
+    def get_selected_items(self):
+        """Get list of currently selected items."""
+        return list(self.selected_items)
 
     def on_image_clicked(self, image_item):
         """Handle single click on image."""
-        if not self.preview_mode:
+        if self.selection_mode:
+            self.toggle_selection(image_item)
+        elif not self.preview_mode:
             self.image_clicked.emit(image_item)
+
+    def toggle_selection(self, image_item):
+        """Toggle selection state for an image."""
+        if image_item in self.selected_items:
+            self.selected_items.remove(image_item)
+        else:
+            self.selected_items.add(image_item)
+        
+        # Update specific widget
+        if image_item in self.image_widgets:
+            self.image_widgets[image_item].set_selected(image_item in self.selected_items)
 
     def on_image_double_clicked(self, image_item):
         """Handle double click on image."""
-        if not self.preview_mode:
+        if not self.preview_mode and not self.selection_mode:
             self.image_double_clicked.emit(image_item)
 
     def enter_preview_mode(self):
         """Enter crop preview mode for all fully tagged images."""
+        if self.selection_mode:
+            return # Don't enter preview if in selection mode
+
         self.preview_mode = True
         for image_item, widget in self.image_widgets.items():
             if image_item.is_fully_tagged():
@@ -129,6 +161,7 @@ class ImageWidget(QFrame):
         self.double_click_flag = False
         self.crop_overlay = None  # Will be created in preview mode
         self.in_preview_mode = False
+        self.is_selected = False
         self.init_ui()
 
     def init_ui(self):
@@ -168,8 +201,19 @@ class ImageWidget(QFrame):
         self.setLayout(layout)
         self.update_border()
 
+    def set_selected(self, selected: bool):
+        """Set visual selection state."""
+        self.is_selected = selected
+        self.update_border()
+
     def update_border(self):
-        """Update border color based on tag status."""
+        """Update border color based on tag status or selection."""
+        if self.is_selected:
+            # Red border for selection (delete mode)
+            self.setStyleSheet("QFrame { border: 4px solid red; background-color: #ffeeee; }")
+            self.tag_label.setText("Selected for Deletion")
+            return
+
         if self.image_item.is_fully_tagged():
             # Green border for fully tagged
             self.setStyleSheet("QFrame { border: 3px solid green; }")

@@ -9,6 +9,9 @@ class ProjectToolbar(QWidget):
 
     project_changed = pyqtSignal(str)  # Emits project name
     new_project_created = pyqtSignal(str, str, str)  # Emits name, input_folder, output_folder
+    add_photo_requested = pyqtSignal()
+    delete_mode_toggled = pyqtSignal(bool)
+    delete_confirmed = pyqtSignal()
 
     def __init__(self):
         super().__init__()
@@ -33,9 +36,43 @@ class ProjectToolbar(QWidget):
         self.new_project_btn.clicked.connect(self.on_new_project_clicked)
         layout.addWidget(self.new_project_btn)
 
+        # Add Photo button
+        self.add_photo_btn = QPushButton("Add Photo")
+        self.add_photo_btn.clicked.connect(self.add_photo_requested.emit)
+        layout.addWidget(self.add_photo_btn)
+
+        # Delete Photo button (Normal mode)
+        self.delete_photo_btn = QPushButton("Delete Photo")
+        self.delete_photo_btn.clicked.connect(lambda: self.toggle_delete_mode(True))
+        layout.addWidget(self.delete_photo_btn)
+
+        # Delete mode buttons (Hidden by default)
+        self.delete_confirm_btn = QPushButton("Delete")
+        self.delete_confirm_btn.setStyleSheet("background-color: #ffcccc; color: red; font-weight: bold;")
+        self.delete_confirm_btn.clicked.connect(self.delete_confirmed.emit)
+        self.delete_confirm_btn.hide()
+        layout.addWidget(self.delete_confirm_btn)
+
+        self.delete_cancel_btn = QPushButton("Cancel")
+        self.delete_cancel_btn.clicked.connect(lambda: self.toggle_delete_mode(False))
+        self.delete_cancel_btn.hide()
+        layout.addWidget(self.delete_cancel_btn)
+
         layout.addStretch()
 
         self.setLayout(layout)
+
+    def toggle_delete_mode(self, enabled: bool):
+        """Toggle between normal and delete mode."""
+        self.delete_mode_toggled.emit(enabled)
+        
+        self.new_project_btn.setVisible(not enabled)
+        self.project_combo.setEnabled(not enabled)
+        self.add_photo_btn.setVisible(not enabled)
+        self.delete_photo_btn.setVisible(not enabled)
+        
+        self.delete_confirm_btn.setVisible(enabled)
+        self.delete_cancel_btn.setVisible(enabled)
 
     def set_projects(self, project_names: list):
         """Update the project dropdown with available projects."""

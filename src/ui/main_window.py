@@ -61,6 +61,9 @@ class MainWindow(QMainWindow):
         # Project toolbar
         self.project_toolbar.project_changed.connect(self.on_project_changed)
         self.project_toolbar.new_project_created.connect(self.on_new_project)
+        self.project_toolbar.add_photo_requested.connect(self.on_add_photo_requested)
+        self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
+        self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
@@ -127,6 +130,142 @@ class MainWindow(QMainWindow):
         else:
             QMessageBox.warning(self, "Error",
                               f"Failed to create project. Project may already exist.")
+
+    def on_add_photo_requested(self):
+        """Handle add photo request."""
+        if not self.current_project:
+            return
+
+        from PyQt6.QtWidgets import QFileDialog
+        
+        # Get supported formats for filter
+        # e.g. "Images (*.png *.jpg *.jpeg)"
+        formats = self.config.get_setting("supported_formats", [".png", ".jpg", ".jpeg"])
+        filter_str = f"Images ({' '.join(['*' + f for f in formats])})"
+
+        file_paths, _ = QFileDialog.getOpenFileNames(
+            self,
+            "Select Images to Add",
+            "",
+            filter_str
+        )
+
+        if not file_paths:
+            return
+
+        # Show busy cursor
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        
+        try:
+            import shutil
+            import os
+            
+            added_count = 0
+            
+            for src_path in file_paths:
+                if not os.path.exists(src_path):
+                    continue
+                    
+                # Copy to project input folder
+                filename = os.path.basename(src_path)
+                dest_path = os.path.join(self.current_project.input_folder, filename)
+                
+                # Handle potential duplicate names before renaming
+                base, ext = os.path.splitext(filename)
+                counter = 1
+                while os.path.exists(dest_path):
+                    dest_path = os.path.join(self.current_project.input_folder, f"{base}_{counter}{ext}")
+                    counter += 1
+                
+                try:
+                    shutil.copy2(src_path, dest_path)
+                    
+                    # Manually add to project images temporarily so they can be processed
+                    from ..models.image_item import ImageItem
+                    image_item = ImageItem(dest_path)
+                    self.current_project.images.append(image_item)
+                    
+                    added_count += 1
+                except Exception as e:
+                    print(f"Error copying file {src_path}: {e}")
+
+            if added_count > 0:
+                # Rename all images in project (including new ones) by date
+                date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
+                ImageProcessor.rename_by_date(self.current_project, date_format)
+                
+                # Reload project to refresh everything cleanly
+                self.load_project(self.current_project.name)
+                
+                QApplication.restoreOverrideCursor()
+                QMessageBox.information(
+                    self,
+                    "Photos Added",
+                    f"Successfully added and sorted {added_count} photos."
+                )
+            
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(self, "Error", f"Failed to add photos: {str(e)}")
+        finally:
+            QApplication.restoreOverrideCursor()
+
+    def on_delete_mode_toggled(self, enabled: bool):
+        """Handle delete mode toggle."""
+        self.image_grid.toggle_selection_mode(enabled)
+        
+        if not enabled:
+            # Just exit mode, clear selection
+            pass
+
+    def on_delete_confirmed(self):
+        """Handle delete confirmation - delete selected images."""
+        selected_items = self.image_grid.get_selected_items()
+        
+        if not selected_items:
+            # No items selected, just exit delete mode
+            self.project_toolbar.toggle_delete_mode(False)
+            return
+
+        # Ask for confirmation
+        reply = QMessageBox.question(
+            self,
+            "Confirm Delete",
+            f"Are you sure you want to delete {len(selected_items)} selected photos?\n"
+            "This will delete the files from your computer.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        import os
+        deleted_count = 0
+        
+        for item in selected_items:
+            try:
+                # Remove file
+                if os.path.exists(item.file_path):
+                    os.remove(item.file_path)
+                
+                # Remove from project
+                if item in self.current_project.images:
+                    self.current_project.images.remove(item)
+                    
+                deleted_count += 1
+            except Exception as e:
+                print(f"Error deleting file {item.file_path}: {e}")
+
+        # Save project
+        self.project_manager.save_project(self.current_project)
+        
+        # Refresh grid
+        self.image_grid.set_project(self.current_project)
+        
+        # Exit delete mode
+        self.project_toolbar.toggle_delete_mode(False)
+        
+        QMessageBox.information(self, "Deletion Complete", f"Deleted {deleted_count} photos.")
 
     def on_image_clicked(self, image_item):
         """Handle single click on image - apply current tags."""

@@ -1,5 +1,6 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton, QLabel
 from PyQt6.QtCore import pyqtSignal
+from PyQt6.QtGui import QColor, QPalette
 
 
 class ToolbarBottom(QWidget):
@@ -61,6 +62,10 @@ class ToolbarBottom(QWidget):
 
         # Cancel button (hidden initially)
         self.cancel_btn = QPushButton("Cancel")
+        pal = self.cancel_btn.palette()
+        pal.setColor(QPalette.ColorRole.Button, QColor("yellow"))
+        self.cancel_btn.setPalette(pal)
+        self.cancel_btn.setAutoFillBackground(True) 
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         self.cancel_btn.hide()
         layout.addWidget(self.cancel_btn)
@@ -125,6 +130,7 @@ class ToolbarBottom(QWidget):
         return (album, size_ratio if size_ratio else "")
     #endregion
 
+    #region | Crop buttons
     def on_crop_clicked(self):
         """Handle crop button click - enter preview mode."""
         self.crop_requested.emit()
@@ -151,6 +157,7 @@ class ToolbarBottom(QWidget):
         self.cancel_btn.hide()
         self.save_btn.hide()
         self.crop_btn.show()
+    #endregion
 
     #region | Refresh button
     def on_refresh_clicked(self):
