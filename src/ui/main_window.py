@@ -83,6 +83,9 @@ class MainWindow(QMainWindow):
         self.tag_panel.config_requested.connect(self.on_config_requested)
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
 
+        # Detail panel
+        self.detail_panel.rename_requested.connect(self.on_rename_requested)
+
         # Image grid
         self.image_grid.image_clicked.connect(self.on_image_clicked)
         self.image_grid.image_double_clicked.connect(self.on_image_double_clicked)
@@ -307,7 +310,7 @@ class MainWindow(QMainWindow):
             return
             
         info = ImageProcessor.get_exif_info(image_item.file_path)
-        self.detail_panel.set_data(info)
+        self.detail_panel.set_data(info, image_item)
 
     def on_image_double_clicked(self, image_item):
         """Handle double click on image - clear tags."""
@@ -318,6 +321,83 @@ class MainWindow(QMainWindow):
 
         # Save project
         self.project_manager.save_project(self.current_project)
+
+    def on_rename_requested(self, image_item):
+        """Handle rename request from detail panel."""
+        if not image_item or not self.current_project:
+            return
+        
+        import os
+        from PyQt6.QtWidgets import QInputDialog
+        
+        # Get current filename
+        current_filename = os.path.basename(image_item.file_path)
+        current_dir = os.path.dirname(image_item.file_path)
+        
+        # Show input dialog
+        new_filename, ok = QInputDialog.getText(
+            self,
+            "Rename Image",
+            "Enter new filename:",
+            text=current_filename
+        )
+        
+        if not ok or not new_filename:
+            return
+        
+        # Validate filename
+        new_filename = new_filename.strip()
+        if not new_filename:
+            QMessageBox.warning(self, "Invalid Filename", "Filename cannot be empty.")
+            return
+        
+        # Ensure extension is preserved if not provided
+        _, current_ext = os.path.splitext(current_filename)
+        _, new_ext = os.path.splitext(new_filename)
+        if not new_ext:
+            new_filename += current_ext
+        
+        # Check if filename already exists
+        new_path = os.path.join(current_dir, new_filename)
+        if os.path.exists(new_path) and new_path != image_item.file_path:
+            QMessageBox.warning(
+                self,
+                "File Exists",
+                f"A file named '{new_filename}' already exists."
+            )
+            return
+        
+        # Rename the file
+        try:
+            os.rename(image_item.file_path, new_path)
+            
+            # Update image item
+            image_item.file_path = new_path
+            image_item.clear_thumbnail_cache()  # Clear cached thumbnail
+            
+            # Save project
+            self.project_manager.save_project(self.current_project)
+            
+            # Refresh grid to show new filename
+            self.image_grid.load_images()
+            
+            # Update detail panel if visible
+            if self.detail_panel.isVisible():
+                self.update_detail_panel(image_item)
+            
+            QMessageBox.information(
+                self,
+                "Rename Successful",
+                f"File renamed to '{new_filename}'"
+            )
+            
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Rename Failed",
+                f"Failed to rename file: {str(e)}"
+            )
+
 
     def on_refresh_requested(self):
         """Handle refresh & rename button click."""
