@@ -42,9 +42,15 @@ class ImageItem:
         """Get or create a thumbnail for this image."""
         if self._thumbnail is None:
             try:
-                pixmap = QPixmap(self.file_path)
-                if not pixmap.isNull():
-                    self._thumbnail = pixmap.scaled(
+                from ..utils.image_loader import ImageLoader
+                # Use ImageLoader which handles HEIC and resizing efficiently
+                # We request 2x size initially for better quality on high DPI, 
+                # but limit it to avoid massive memory usage for huge files.
+                load_size = size * 2 
+                self._thumbnail = ImageLoader.load_pixmap(self.file_path, max_size=load_size)
+                
+                if not self._thumbnail.isNull() and (self._thumbnail.width() > size or self._thumbnail.height() > size):
+                     self._thumbnail = self._thumbnail.scaled(
                         size, size,
                         Qt.AspectRatioMode.KeepAspectRatio,
                         Qt.TransformationMode.SmoothTransformation

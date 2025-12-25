@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect
 from PyQt6.QtGui import QPixmap, QPalette
 from .crop_overlay import CropOverlay
+from src.utils.image_loader import ImageLoader
 
 
 class ImageGrid(QWidget):
@@ -317,6 +318,7 @@ class ImageWidget(QFrame):
 
     def _calculate_initial_crop(self, config):
         """Calculate initial crop position using smart crop or saved position."""
+        # ImageLoader is now imported globally
         from PIL import Image
         import smartcrop
 
@@ -346,6 +348,17 @@ class ImageWidget(QFrame):
             # Get image dimensions
             image_width, image_height = img.size
 
+            # Optimization: Downscale image for smart crop analysis if it's too large
+            # This massively speeds up HEIC/large image processing
+            analysis_img = img
+            scale_factor = 1.0
+            MAX_ANALYSIS_SIZE = 600
+            
+            if image_width > MAX_ANALYSIS_SIZE or image_height > MAX_ANALYSIS_SIZE:
+                analysis_img = img.copy()
+                analysis_img.thumbnail((MAX_ANALYSIS_SIZE, MAX_ANALYSIS_SIZE), Image.Resampling.LANCZOS)
+                scale_factor = image_width / analysis_img.width
+
             # Calculate the largest possible crop dimensions based on ratio
             # Try fitting by width
             crop_width_by_width = image_width
@@ -364,16 +377,21 @@ class ImageWidget(QFrame):
                 target_height = crop_height_by_height
 
             # Use smartcrop to find best crop
+            # We must scale target dimensions down for the analysis image
+            analysis_target_width = int(target_width / scale_factor)
+            analysis_target_height = int(target_height / scale_factor)
+            
+            # Smart crop on smaller image
             sc = smartcrop.SmartCrop()
-            result = sc.crop(img, target_width, target_height)
+            result = sc.crop(analysis_img, analysis_target_width, analysis_target_height)
 
-            # Get crop coordinates from smartcrop result
+            # Get crop coordinates from smartcrop result and scale back up
             crop = result['top_crop']
             crop_box = {
-                'x': crop['x'],
-                'y': crop['y'],
-                'width': crop['width'],
-                'height': crop['height']
+                'x': int(crop['x'] * scale_factor),
+                'y': int(crop['y'] * scale_factor),
+                'width': int(crop['width'] * scale_factor),
+                'height': int(crop['height'] * scale_factor)
             }
 
             # Save to image item
@@ -389,14 +407,13 @@ class ImageWidget(QFrame):
     def _apply_crop_box_to_overlay(self, crop_box: dict):
         """Convert image coordinates to thumbnail coordinates and apply to overlay."""
         try:
-            # Load full image to get dimensions
-            full_pixmap = QPixmap(self.image_item.file_path)
-            if full_pixmap.isNull():
+            # Optimize: Get dimensions without loading full pixmap
+            # This is much faster for HEIC support
+            img_width, img_height = ImageLoader.get_image_dimensions(self.image_item.file_path)
+            
+            if img_width == 0 or img_height == 0:
                 self._set_centered_crop()
                 return
-
-            img_width = full_pixmap.width()
-            img_height = full_pixmap.height()
 
             # Get thumbnail pixmap to find scale factor
             thumbnail = self.image_item.get_thumbnail(self.thumbnail_size)
@@ -469,13 +486,11 @@ class ImageWidget(QFrame):
                 # Get overlay crop in thumbnail coordinates
                 overlay_crop = self.crop_overlay.get_crop_dict()
 
-                # Load full image to get dimensions
-                full_pixmap = QPixmap(self.image_item.file_path)
-                if full_pixmap.isNull():
+                # Optimize: Get dimensions without loading full pixmap
+                img_width, img_height = ImageLoader.get_image_dimensions(self.image_item.file_path)
+                
+                if img_width == 0 or img_height == 0:
                     return
-
-                img_width = full_pixmap.width()
-                img_height = full_pixmap.height()
 
                 # Get thumbnail dimensions
                 thumbnail = self.image_item.get_thumbnail(self.thumbnail_size)

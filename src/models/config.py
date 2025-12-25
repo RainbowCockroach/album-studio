@@ -249,5 +249,5 @@ class Config:
             "thumbnail_size": 200,
             "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
-            "supported_formats": [".jpg", ".jpeg", ".png", ".JPG", ".JPEG", ".PNG"]
+            "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"]
         }

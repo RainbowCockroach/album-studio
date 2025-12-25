@@ -124,13 +124,15 @@ class CropService:
             return 0
 
         for image_item in tagged_images:
-            # Build output path: output/AlbumName/Size/filename
+            # Build output path: output/AlbumName/Size/filename.jpg
             filename = os.path.basename(image_item.file_path)
+            base_name, _ = os.path.splitext(filename)
+            new_filename = f"{base_name}.jpg"
             output_path = os.path.join(
                 project.output_folder,
                 image_item.album_tag,
                 image_item.size_tag,
-                filename
+                new_filename
             )
 
             # Crop the image (use manual crop_box if available)

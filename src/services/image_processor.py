@@ -13,6 +13,26 @@ class ImageProcessor:
     def read_exif_date(file_path: str) -> Optional[datetime]:
         """Extract date taken from EXIF data."""
         try:
+            # Wrapper for HEIC support
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+
+            # For HEIC and potentially others, standard piexif.load(path) might fail
+            # or simply not work. We'll try a robust approach using Pillow for metadata.
+            
+            # First try Pillow directly as it's cleaner for HEIC
+            try:
+                with Image.open(file_path) as img:
+                    exif = img.getexif()
+                    if exif:
+                        # 36867 is DateTimeOriginal, 306 is DateTime
+                        date_str = exif.get(36867) or exif.get(306)
+                        if date_str:
+                            return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
+            except Exception:
+                pass # Fallback to strict piexif if Pillow fails or returns nothing
+
+            # Legacy/Fallback method (Piexif)
             exif_dict = piexif.load(file_path)
 
             # Try to get DateTimeOriginal first (when photo was taken)
