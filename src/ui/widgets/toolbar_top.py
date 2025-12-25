@@ -36,6 +36,10 @@ class ProjectToolbar(QWidget):
         self.new_project_btn.clicked.connect(self.on_new_project_clicked)
         layout.addWidget(self.new_project_btn)
 
+        # ***************** Spacer *****************
+        layout.addStretch()
+        # ***************** Spacer *****************
+
         # Add Photo button
         self.add_photo_btn = QPushButton("Add Photo")
         self.add_photo_btn.clicked.connect(self.add_photo_requested.emit)

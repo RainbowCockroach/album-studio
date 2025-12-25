@@ -1,9 +1,10 @@
-from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout,
+from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMessageBox, QApplication)
 from PyQt6.QtCore import Qt
 from .widgets.toolbar_top import ProjectToolbar
 from .widgets.image_grid import ImageGrid
 from .widgets.toolbar_bottom import ToolbarBottom
+from .widgets.detail_panel import DetailPanel
 from ..models.config import Config
 from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
@@ -42,10 +43,19 @@ class MainWindow(QMainWindow):
         self.project_toolbar = ProjectToolbar()
         self.image_grid = ImageGrid(self.config)
         self.tag_panel = ToolbarBottom(self.config)
+        self.detail_panel = DetailPanel()
 
-        # Add widgets to layout
+        # Content layout (Horizontal) - holds sidebar and grid
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        
+        content_layout.addWidget(self.detail_panel)
+        content_layout.addWidget(self.image_grid, stretch=1)
+
+        # Add widgets to main layout
         layout.addWidget(self.project_toolbar)
-        layout.addWidget(self.image_grid, stretch=1)
+        layout.addLayout(content_layout, stretch=1)
         layout.addWidget(self.tag_panel)
 
         central_widget.setLayout(layout)
@@ -71,6 +81,7 @@ class MainWindow(QMainWindow):
         self.tag_panel.cancel_requested.connect(self.on_cancel_requested)
         self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
         self.tag_panel.config_requested.connect(self.on_config_requested)
+        self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
 
         # Image grid
         self.image_grid.image_clicked.connect(self.on_image_clicked)
@@ -284,6 +295,19 @@ class MainWindow(QMainWindow):
 
         # Save project
         self.project_manager.save_project(self.current_project)
+
+        # Update detail panel if visible
+        if self.detail_panel.isVisible():
+            self.update_detail_panel(image_item)
+
+    def update_detail_panel(self, image_item):
+        """Update detail panel with EXIF info."""
+        if not image_item:
+            self.detail_panel.clear()
+            return
+            
+        info = ImageProcessor.get_exif_info(image_item.file_path)
+        self.detail_panel.set_data(info)
 
     def on_image_double_clicked(self, image_item):
         """Handle double click on image - clear tags."""

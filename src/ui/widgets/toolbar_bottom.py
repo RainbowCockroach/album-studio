@@ -11,6 +11,7 @@ class ToolbarBottom(QWidget):
     cancel_requested = pyqtSignal()  # Cancel preview mode
     refresh_requested = pyqtSignal()
     config_requested = pyqtSignal()  # Config button clicked
+    detail_toggled = pyqtSignal(bool)  # Show/hide detail panel
     tags_changed = pyqtSignal(str, str)  # Emits album, size
 
     def __init__(self, config):
@@ -27,6 +28,12 @@ class ToolbarBottom(QWidget):
         self.config_btn.setToolTip("Configure size groups and sizes")
         self.config_btn.clicked.connect(self.on_config_clicked)
         layout.addWidget(self.config_btn)
+        
+        # Detail toggle button
+        self.detail_btn = QPushButton("Show detail")
+        self.detail_btn.setCheckable(True)
+        self.detail_btn.toggled.connect(self.on_detail_toggled)
+        layout.addWidget(self.detail_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -169,4 +176,11 @@ class ToolbarBottom(QWidget):
     def on_config_clicked(self):
         """Handle config button click."""
         self.config_requested.emit()
+    #endregion
+    
+    #region | Detail button
+    def on_detail_toggled(self, checked: bool):
+        """Handle detail button toggle."""
+        self.detail_btn.setText("Hide detail" if checked else "Show detail")
+        self.detail_toggled.emit(checked)
     #endregion
