@@ -3,7 +3,7 @@ from typing import Optional
 from PIL import Image
 # Compatibility shim for older smartcrop library with Pillow 10+
 if not hasattr(Image, 'ANTIALIAS'):
-    Image.ANTIALIAS = Image.Resampling.LANCZOS
+    Image.ANTIALIAS = Image.Resampling.LANCZOS  # type: ignore[attr-defined]
 import smartcrop
 
 
@@ -124,13 +124,12 @@ class CropService:
             return 0
 
         for image_item in tagged_images:
-            # Build output path: output/AlbumName/Size/filename.jpg
+            # Build output path: output/Size/filename.jpg
             filename = os.path.basename(image_item.file_path)
             base_name, _ = os.path.splitext(filename)
             new_filename = f"{base_name}.jpg"
             output_path = os.path.join(
                 project.output_folder,
-                image_item.album_tag,
                 image_item.size_tag,
                 new_filename
             )
