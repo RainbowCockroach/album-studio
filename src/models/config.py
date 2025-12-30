@@ -244,6 +244,7 @@ class Config:
     def _get_default_settings() -> dict:
         """Get default settings if settings.json doesn't exist."""
         return {
+            "workspace_directory": "",
             "default_input_folder": "",
             "default_output_folder": "",
             "thumbnail_size": 200,

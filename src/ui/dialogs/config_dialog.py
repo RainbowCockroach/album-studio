@@ -1,7 +1,8 @@
 import copy
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
-    QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget
+    QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
+    QFileDialog, QGroupBox
 )
 from PyQt6.QtCore import Qt
 
@@ -33,6 +34,10 @@ class ConfigDialog(QDialog):
     def init_ui(self):
         """Create the split-panel interface."""
         main_layout = QVBoxLayout()
+
+        # Add workspace directory section at the top
+        workspace_section = self.create_workspace_section()
+        main_layout.addWidget(workspace_section)
 
         # Create splitter for two-panel layout
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -67,6 +72,40 @@ class ConfigDialog(QDialog):
 
         # Load initial data
         self.load_size_groups()
+
+    def create_workspace_section(self):
+        """Create workspace directory configuration section."""
+        group_box = QGroupBox("Workspace Settings")
+        layout = QHBoxLayout()
+
+        label = QLabel("Workspace Directory:")
+        layout.addWidget(label)
+
+        # Get current workspace directory from settings
+        current_workspace = self.config.get_setting("workspace_directory", "")
+        self.workspace_input = QLineEdit()
+        self.workspace_input.setText(current_workspace)
+        self.workspace_input.setPlaceholderText("Select a folder for storing projects")
+        layout.addWidget(self.workspace_input)
+
+        # Browse button
+        browse_btn = QPushButton("Browse...")
+        browse_btn.clicked.connect(self.browse_workspace_directory)
+        layout.addWidget(browse_btn)
+
+        group_box.setLayout(layout)
+        return group_box
+
+    def browse_workspace_directory(self):
+        """Browse for workspace directory."""
+        current = self.workspace_input.text()
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Workspace Directory",
+            current if current else ""
+        )
+        if folder:
+            self.workspace_input.setText(folder)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -364,6 +403,11 @@ class ConfigDialog(QDialog):
 
     def save_changes(self):
         """Save all changes back to config and files."""
+        # Save workspace directory setting
+        workspace_dir = self.workspace_input.text().strip()
+        self.config.set_setting("workspace_directory", workspace_dir)
+        self.config.save_settings()
+
         # Calculate deletions
         deleted_size_groups = self.original_size_group_names - set(self.working_copy_size_groups.keys())
 

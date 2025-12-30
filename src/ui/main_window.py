@@ -71,6 +71,7 @@ class MainWindow(QMainWindow):
         # Project toolbar
         self.project_toolbar.project_changed.connect(self.on_project_changed)
         self.project_toolbar.new_project_created.connect(self.on_new_project)
+        self.project_toolbar.archive_requested.connect(self.on_archive_requested)
         self.project_toolbar.add_photo_requested.connect(self.on_add_photo_requested)
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
@@ -113,6 +114,9 @@ class MainWindow(QMainWindow):
         supported_formats = self.config.get_setting("supported_formats", [])
         project.load_images(supported_formats)
 
+        # Load saved project data (tags and crop positions)
+        project.load_project_data(self.project_manager.data_dir)
+
         # Update image grid
         self.image_grid.set_project(project)
 
@@ -125,14 +129,38 @@ class MainWindow(QMainWindow):
         """Handle project selection change."""
         self.load_project(project_name)
 
-    def on_new_project(self, name: str, input_folder: str, output_folder: str):
+    def on_new_project(self, name: str):
         """Handle new project creation."""
-        if not name or not input_folder or not output_folder:
+        if not name:
             QMessageBox.warning(self, "Invalid Input",
-                              "Please fill in all fields.")
+                              "Please enter a project name.")
             return
 
-        project = self.project_manager.create_project(name, input_folder, output_folder)
+        # Get workspace directory from settings
+        workspace_directory = self.config.get_setting("workspace_directory", "")
+
+        if not workspace_directory:
+            reply = QMessageBox.question(
+                self,
+                "Workspace Not Set",
+                "No workspace directory configured. Would you like to configure it now?",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            if reply == QMessageBox.StandardButton.Yes:
+                # Open config dialog to set workspace
+                from .dialogs.config_dialog import ConfigDialog
+                dialog = ConfigDialog(self.config, self.project_manager, self)
+                if dialog.exec() == dialog.DialogCode.Accepted:
+                    # Check if workspace was set
+                    workspace_directory = self.config.get_setting("workspace_directory", "")
+                    if not workspace_directory:
+                        return  # User cancelled or didn't set workspace
+                else:
+                    return  # User cancelled dialog
+            else:
+                return  # User chose not to configure workspace
+
+        project = self.project_manager.create_project(name, workspace_directory)
         if project:
             # Refresh project list
             project_names = self.project_manager.get_project_names()
@@ -140,10 +168,65 @@ class MainWindow(QMainWindow):
             self.project_toolbar.set_current_project(name)
 
             QMessageBox.information(self, "Success",
-                                  f"Project '{name}' created successfully!")
+                                  f"Project '{name}' created successfully!\n"
+                                  f"Location: {project.input_folder}")
         else:
             QMessageBox.warning(self, "Error",
                               f"Failed to create project. Project may already exist.")
+
+    def on_archive_requested(self, project_name: str):
+        """Handle archive project request."""
+        if not project_name:
+            return
+
+        # Show confirmation dialog with detailed info
+        reply = QMessageBox.question(
+            self,
+            "Archive Project",
+            f"Archive project '{project_name}'?\n\n"
+            "This will:\n"
+            "1. Create thumbnails of all output images → saved to 'printed' folder\n"
+            "2. Zip the output folder\n"
+            "3. Delete both input and output folders\n"
+            "4. Remove project from the projects list\n\n"
+            "This action cannot be undone!",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Show busy cursor
+        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+
+        try:
+            # Archive the project
+            stats = self.project_manager.archive_project(project_name)
+
+            QApplication.restoreOverrideCursor()
+
+            # Show success message
+            QMessageBox.information(
+                self,
+                "Archive Complete",
+                f"Project '{project_name}' archived successfully!\n\n"
+                f"Created {stats['thumbnails_created']} thumbnails\n"
+                f"Zip created: {'Yes' if stats['zip_created'] else 'No'}\n"
+                f"Folders deleted: {'Yes' if stats['folders_deleted'] else 'No'}\n"
+                f"Project removed: {'Yes' if stats['project_removed'] else 'No'}"
+            )
+
+            # Reload projects
+            self.load_projects()
+
+        except Exception as e:
+            QApplication.restoreOverrideCursor()
+            QMessageBox.critical(
+                self,
+                "Archive Failed",
+                f"Failed to archive project: {str(e)}"
+            )
 
     def on_add_photo_requested(self):
         """Handle add photo request."""

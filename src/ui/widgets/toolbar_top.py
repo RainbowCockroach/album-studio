@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QComboBox, QPushButton,
                              QLabel, QDialog, QVBoxLayout, QLineEdit,
-                             QFileDialog, QDialogButtonBox, QFormLayout)
+                             QDialogButtonBox, QFormLayout)
 from PyQt6.QtCore import pyqtSignal
 
 
@@ -8,7 +8,8 @@ class ProjectToolbar(QWidget):
     """Top toolbar with project selector and new project button."""
 
     project_changed = pyqtSignal(str)  # Emits project name
-    new_project_created = pyqtSignal(str, str, str)  # Emits name, input_folder, output_folder
+    new_project_created = pyqtSignal(str)  # Emits project name only
+    archive_requested = pyqtSignal(str)  # Emits project name to archive
     add_photo_requested = pyqtSignal()
     delete_mode_toggled = pyqtSignal(bool)
     delete_confirmed = pyqtSignal()
@@ -35,6 +36,11 @@ class ProjectToolbar(QWidget):
         self.new_project_btn = QPushButton("New Project")
         self.new_project_btn.clicked.connect(self.on_new_project_clicked)
         layout.addWidget(self.new_project_btn)
+
+        # Archive project button
+        self.archive_project_btn = QPushButton("Archive")
+        self.archive_project_btn.clicked.connect(self.on_archive_project_clicked)
+        layout.addWidget(self.archive_project_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -69,12 +75,13 @@ class ProjectToolbar(QWidget):
     def toggle_delete_mode(self, enabled: bool):
         """Toggle between normal and delete mode."""
         self.delete_mode_toggled.emit(enabled)
-        
+
         self.new_project_btn.setVisible(not enabled)
+        self.archive_project_btn.setVisible(not enabled)
         self.project_combo.setEnabled(not enabled)
         self.add_photo_btn.setVisible(not enabled)
         self.delete_photo_btn.setVisible(not enabled)
-        
+
         self.delete_confirm_btn.setVisible(enabled)
         self.delete_cancel_btn.setVisible(enabled)
 
@@ -107,8 +114,14 @@ class ProjectToolbar(QWidget):
         """Show dialog to create new project."""
         dialog = NewProjectDialog(self)
         if dialog.exec():
-            name, input_folder, output_folder = dialog.get_values()
-            self.new_project_created.emit(name, input_folder, output_folder)
+            name = dialog.get_values()
+            self.new_project_created.emit(name)
+
+    def on_archive_project_clicked(self):
+        """Handle archive button click."""
+        project_name = self.get_current_project()
+        if project_name:
+            self.archive_requested.emit(project_name)
 
 
 class NewProjectDialog(QDialog):
@@ -117,7 +130,7 @@ class NewProjectDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create New Project")
-        self.setMinimumWidth(500)
+        self.setMinimumWidth(400)
         self.init_ui()
 
     def init_ui(self):
@@ -129,24 +142,6 @@ class NewProjectDialog(QDialog):
         # Project name
         self.name_input = QLineEdit()
         form_layout.addRow("Project Name:", self.name_input)
-
-        # Input folder
-        input_layout = QHBoxLayout()
-        self.input_folder_input = QLineEdit()
-        input_browse_btn = QPushButton("Browse...")
-        input_browse_btn.clicked.connect(self.browse_input_folder)
-        input_layout.addWidget(self.input_folder_input)
-        input_layout.addWidget(input_browse_btn)
-        form_layout.addRow("Input Folder:", input_layout)
-
-        # Output folder
-        output_layout = QHBoxLayout()
-        self.output_folder_input = QLineEdit()
-        output_browse_btn = QPushButton("Browse...")
-        output_browse_btn.clicked.connect(self.browse_output_folder)
-        output_layout.addWidget(self.output_folder_input)
-        output_layout.addWidget(output_browse_btn)
-        form_layout.addRow("Output Folder:", output_layout)
 
         layout.addLayout(form_layout)
 
@@ -161,22 +156,6 @@ class NewProjectDialog(QDialog):
 
         self.setLayout(layout)
 
-    def browse_input_folder(self):
-        """Browse for input folder."""
-        folder = QFileDialog.getExistingDirectory(self, "Select Input Folder")
-        if folder:
-            self.input_folder_input.setText(folder)
-
-    def browse_output_folder(self):
-        """Browse for output folder."""
-        folder = QFileDialog.getExistingDirectory(self, "Select Output Folder")
-        if folder:
-            self.output_folder_input.setText(folder)
-
-    def get_values(self) -> tuple:
-        """Get the entered values."""
-        return (
-            self.name_input.text().strip(),
-            self.input_folder_input.text().strip(),
-            self.output_folder_input.text().strip()
-        )
+    def get_values(self) -> str:
+        """Get the entered project name."""
+        return self.name_input.text().strip()

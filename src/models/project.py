@@ -1,4 +1,5 @@
 import os
+import json
 from typing import List
 from .image_item import ImageItem
 
@@ -77,6 +78,76 @@ class Project:
             project.images.append(image_item)
 
         return project
+
+    def get_project_data_path(self, data_dir: str = "data") -> str:
+        """Get the path to the project data file."""
+        project_folder = os.path.join(data_dir, "projects", self.name)
+        return os.path.join(project_folder, "project_data.json")
+
+    def save_project_data(self, data_dir: str = "data"):
+        """Save project image data (tags and crop positions) to individual project file."""
+        try:
+            # Create project folder
+            project_folder = os.path.join(data_dir, "projects", self.name)
+            os.makedirs(project_folder, exist_ok=True)
+
+            # Prepare data - only save image data (tags and crop positions)
+            data = {
+                "version": "1.0",
+                "images": []
+            }
+
+            for img in self.images:
+                # Only save images that have tags or crop data
+                if img.has_tags() or img.crop_box or img.is_cropped:
+                    data["images"].append({
+                        "file_path": img.file_path,
+                        "album_tag": img.album_tag,
+                        "size_tag": img.size_tag,
+                        "is_cropped": img.is_cropped,
+                        "crop_box": img.crop_box
+                    })
+
+            # Save to file
+            data_path = self.get_project_data_path(data_dir)
+            with open(data_path, 'w') as f:
+                json.dump(data, f, indent=2)
+
+            print(f"Saved project data for '{self.name}' to {data_path}")
+        except Exception as e:
+            print(f"Error saving project data for '{self.name}': {e}")
+
+    def load_project_data(self, data_dir: str = "data"):
+        """Load project image data (tags and crop positions) from individual project file."""
+        data_path = self.get_project_data_path(data_dir)
+
+        if not os.path.exists(data_path):
+            print(f"No saved data found for project '{self.name}'")
+            return
+
+        try:
+            with open(data_path, 'r') as f:
+                data = json.load(f)
+
+            # Create a lookup dict for fast matching
+            saved_images = {img_data["file_path"]: img_data for img_data in data.get("images", [])}
+
+            # Apply saved data to matching images
+            loaded_count = 0
+            for img in self.images:
+                if img.file_path in saved_images:
+                    saved_data = saved_images[img.file_path]
+                    img.album_tag = saved_data.get("album_tag")
+                    img.size_tag = saved_data.get("size_tag")
+                    img.is_cropped = saved_data.get("is_cropped", False)
+                    img.crop_box = saved_data.get("crop_box")
+                    loaded_count += 1
+
+            print(f"Loaded data for {loaded_count} images in project '{self.name}'")
+        except json.JSONDecodeError as e:
+            print(f"Error parsing project data file for '{self.name}': {e}")
+        except Exception as e:
+            print(f"Error loading project data for '{self.name}': {e}")
 
     def __repr__(self):
         return f"Project(name={self.name}, images={len(self.images)})"
