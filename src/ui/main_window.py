@@ -206,6 +206,15 @@ class MainWindow(QMainWindow):
 
             QApplication.restoreOverrideCursor()
 
+            # Clear current project if it's the one being archived
+            if self.current_project and self.current_project.name == project_name:
+                self.current_project = None
+                self.image_grid.set_project(None)
+                self.tag_panel.set_enabled(False)
+
+            # Reload projects list (will load first available project if any exist)
+            self.load_projects()
+
             # Show success message
             QMessageBox.information(
                 self,
@@ -216,9 +225,6 @@ class MainWindow(QMainWindow):
                 f"Folders deleted: {'Yes' if stats['folders_deleted'] else 'No'}\n"
                 f"Project removed: {'Yes' if stats['project_removed'] else 'No'}"
             )
-
-            # Reload projects
-            self.load_projects()
 
         except Exception as e:
             QApplication.restoreOverrideCursor()
