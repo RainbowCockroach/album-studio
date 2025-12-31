@@ -660,9 +660,11 @@ class MainWindow(QMainWindow):
 
         dialog = FindSimilarDialog(self.current_project, self.similarity_service, self.config, self)
 
-        # If user clicked an image before opening dialog, use that as target
+        # If user clicked an image before opening dialog, use that as target and auto-search
         if self.last_clicked_image:
             dialog.set_target_image(self.last_clicked_image)
+            # Automatically start searching
+            dialog.find_similar()
 
         dialog.exec()
 
