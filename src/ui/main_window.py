@@ -621,10 +621,8 @@ class MainWindow(QMainWindow):
 
     def on_find_similar_requested(self):
         """Handle find similar button click - open similarity dialog."""
-        print(f"[DEBUG] MainWindow: on_find_similar_requested() called")
 
         if not self.current_project:
-            print(f"[DEBUG] ERROR: No project loaded")
             QMessageBox.warning(
                 self,
                 "No Project",
@@ -633,7 +631,6 @@ class MainWindow(QMainWindow):
             return
 
         if not self.current_project.images:
-            print(f"[DEBUG] ERROR: No images in project")
             QMessageBox.warning(
                 self,
                 "No Images",
@@ -641,18 +638,11 @@ class MainWindow(QMainWindow):
             )
             return
 
-        print(f"[DEBUG] Project loaded: {self.current_project.name}")
-        print(f"[DEBUG] Number of images: {len(self.current_project.images)}")
-        print(f"[DEBUG] Last clicked image: {self.last_clicked_image.file_path if self.last_clicked_image else 'None'}")
-
         # Lazy load similarity service
         if self.similarity_service is None:
-            print(f"[DEBUG] Initializing ImageSimilarityService...")
             try:
                 self.similarity_service = ImageSimilarityService()
-                print(f"[DEBUG] ImageSimilarityService initialized successfully")
             except ImportError as e:
-                print(f"[DEBUG] ERROR: ImportError - {e}")
                 QMessageBox.critical(
                     self,
                     "Missing Dependencies",
@@ -661,29 +651,20 @@ class MainWindow(QMainWindow):
                 )
                 return
             except Exception as e:
-                print(f"[DEBUG] ERROR: Unexpected error - {e}")
                 import traceback
                 traceback.print_exc()
                 return
-        else:
-            print(f"[DEBUG] Using existing ImageSimilarityService instance")
 
         # Show the dialog
         from .dialogs.find_similar_dialog import FindSimilarDialog
 
-        print(f"[DEBUG] Creating FindSimilarDialog...")
         dialog = FindSimilarDialog(self.current_project, self.similarity_service, self.config, self)
 
         # If user clicked an image before opening dialog, use that as target
         if self.last_clicked_image:
-            print(f"[DEBUG] Setting target image from last clicked: {self.last_clicked_image.file_path}")
             dialog.set_target_image(self.last_clicked_image)
-        else:
-            print(f"[DEBUG] No last clicked image, user must select target manually")
 
-        print(f"[DEBUG] Opening dialog...")
         dialog.exec()
-        print(f"[DEBUG] Dialog closed")
 
     def closeEvent(self, event):
         """Handle window close event."""

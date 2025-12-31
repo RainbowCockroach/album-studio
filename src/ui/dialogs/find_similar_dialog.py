@@ -28,7 +28,7 @@ class ComparisonImage:
                         Qt.TransformationMode.SmoothTransformation
                     )
             except Exception as e:
-                print(f"[DEBUG] Error creating thumbnail for {self.file_path}: {e}")
+                print(f"Error creating thumbnail for {self.file_path}: {e}")
                 return None
         return self._thumbnail
 
@@ -200,7 +200,6 @@ class FindSimilarDialog(QDialog):
 
     def set_target_image(self, image_item):
         """Set the target image to find similar images for."""
-        print(f"[DEBUG] FindSimilarDialog: Setting target image: {image_item.file_path}")
         self.target_image = image_item
 
         import os
@@ -213,7 +212,6 @@ class FindSimilarDialog(QDialog):
         # Clear previous results (both UI and data)
         self.clear_results()
         self.similar_images = []
-        print(f"[DEBUG] FindSimilarDialog: Target image set successfully")
 
     def clear_results(self):
         """Clear the results grid UI widgets only."""
@@ -227,15 +225,12 @@ class FindSimilarDialog(QDialog):
 
     def find_similar(self):
         """Find similar images to the target."""
-        print(f"[DEBUG] FindSimilarDialog: find_similar() called")
 
         if not self.target_image:
-            print(f"[DEBUG] ERROR: Missing target_image")
             return
 
         # Get comparison directory
         comparison_dir = self.config.get_comparison_directory()
-        print(f"[DEBUG] Comparison directory: {comparison_dir}")
 
         if not comparison_dir:
             QMessageBox.warning(
@@ -250,10 +245,6 @@ class FindSimilarDialog(QDialog):
         top_k = self.num_results_spin.value()
         min_similarity = self.min_similarity_slider.value() / 100.0
 
-        print(f"[DEBUG] Search parameters:")
-        print(f"[DEBUG]   - top_k: {top_k}")
-        print(f"[DEBUG]   - min_similarity: {min_similarity}")
-
         # Show progress dialog
         progress = QProgressDialog("Loading comparison images...", "Cancel", 0, 100, self)
         progress.setWindowModality(Qt.WindowModality.WindowModal)
@@ -263,14 +254,11 @@ class FindSimilarDialog(QDialog):
         try:
             # Load images from comparison directory
             supported_formats = self.config.get_setting("supported_formats", [])
-            print(f"[DEBUG] Loading images from comparison directory...")
 
             image_data = self.similarity_service.load_images_from_directory(
                 comparison_dir,
                 supported_formats
             )
-
-            print(f"[DEBUG] Loaded {len(image_data)} comparison images")
 
             if not image_data:
                 progress.close()
@@ -291,8 +279,6 @@ class FindSimilarDialog(QDialog):
             progress.setValue(30)
             progress.setLabelText("Finding similar images...")
 
-            print(f"[DEBUG] Calling similarity_service.find_similar_images()...")
-
             # Find similar images
             self.similar_images = self.similarity_service.find_similar_images(
                 self.target_image,
@@ -301,27 +287,22 @@ class FindSimilarDialog(QDialog):
                 min_similarity=min_similarity
             )
 
-            print(f"[DEBUG] find_similar_images() returned {len(self.similar_images)} results")
-
             progress.setValue(80)
 
             # Display results
-            print(f"[DEBUG] Displaying results...")
             self.display_results()
 
             progress.setValue(100)
 
             if not self.similar_images:
                 msg = "No similar images found. Try lowering the minimum similarity threshold."
-                print(f"[DEBUG] {msg}")
                 self.status_label.setText(msg)
             else:
                 msg = f"Found {len(self.similar_images)} similar images in comparison directory"
-                print(f"[DEBUG] {msg}")
                 self.status_label.setText(msg)
 
         except Exception as e:
-            print(f"[DEBUG] ERROR in find_similar(): {e}")
+            print(f"ERROR in find_similar(): {e}")
             import traceback
             traceback.print_exc()
             QMessageBox.critical(
@@ -335,11 +316,9 @@ class FindSimilarDialog(QDialog):
 
     def display_results(self):
         """Display similar images in a grid."""
-        print(f"[DEBUG] display_results() called, {len(self.similar_images)} images to display")
         self.clear_results()
 
         if not self.similar_images:
-            print(f"[DEBUG] No images to display")
             return
 
         # Display in grid (4 columns)
@@ -349,14 +328,10 @@ class FindSimilarDialog(QDialog):
             row = i // columns
             col = i % columns
 
-            print(f"[DEBUG] Creating thumbnail {i+1}/{len(self.similar_images)}: {image_item.file_path}, similarity={similarity:.4f}")
-
             thumbnail = ImageThumbnail(image_item, similarity)
             thumbnail.clicked.connect(self.on_thumbnail_clicked)
 
             self.results_layout.addWidget(thumbnail, row, col)
-
-        print(f"[DEBUG] All thumbnails added to grid")
 
     def on_thumbnail_clicked(self, image_item):
         """Handle clicking on a similar image."""

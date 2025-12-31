@@ -67,7 +67,6 @@ class CropService:
             # Calculate crop dimensions based on image size and ratio
             dimensions = self.get_crop_dimensions(size_tag, image_width, image_height)
             if not dimensions:
-                print(f"No dimensions found for size: {size_tag}")
                 return False
 
             target_width, target_height = dimensions
@@ -79,7 +78,6 @@ class CropService:
                 y = manual_crop_box['y']
                 width = manual_crop_box['width']
                 height = manual_crop_box['height']
-                print(f"Using manual crop: {x}, {y}, {width}, {height}")
             else:
                 # Use smartcrop to find best crop
                 result = self.smartcrop.crop(img, target_width, target_height)
@@ -90,7 +88,6 @@ class CropService:
                 y = crop_box['y']
                 width = crop_box['width']
                 height = crop_box['height']
-                print(f"Using smart crop: {x}, {y}, {width}, {height}")
 
             # Crop the image
             cropped_img = img.crop((x, y, x + width, y + height))
@@ -104,7 +101,6 @@ class CropService:
             # Save the cropped image
             final_img.save(output_path, quality=95)
 
-            print(f"Cropped and saved: {output_path}")
             return True
 
         except Exception as e:
@@ -120,7 +116,6 @@ class CropService:
         tagged_images = project.get_tagged_images()
 
         if not tagged_images:
-            print("No fully tagged images to crop")
             return 0
 
         for image_item in tagged_images:
