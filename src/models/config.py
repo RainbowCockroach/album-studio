@@ -240,6 +240,21 @@ class Config:
                 migrated[group_name] = {"sizes": []}
         return migrated
 
+    def get_comparison_directory(self) -> str:
+        """
+        Get the comparison directory for similarity search.
+        Defaults to {workspace_directory}/printed if not set.
+        """
+        comparison_dir = self.settings.get("comparison_directory", "")
+
+        # If not set, default to workspace/printed
+        if not comparison_dir:
+            workspace = self.settings.get("workspace_directory", "")
+            if workspace:
+                comparison_dir = os.path.join(workspace, "printed")
+
+        return comparison_dir
+
     @staticmethod
     def _get_default_settings() -> dict:
         """Get default settings if settings.json doesn't exist."""
@@ -250,5 +265,6 @@ class Config:
             "thumbnail_size": 200,
             "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
-            "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"]
+            "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
+            "comparison_directory": ""  # Empty means use {workspace}/printed
         }

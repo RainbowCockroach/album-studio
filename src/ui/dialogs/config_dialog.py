@@ -76,22 +76,45 @@ class ConfigDialog(QDialog):
     def create_workspace_section(self):
         """Create workspace directory configuration section."""
         group_box = QGroupBox("Workspace Settings")
-        layout = QHBoxLayout()
+        layout = QVBoxLayout()
 
-        label = QLabel("Workspace Directory:")
-        layout.addWidget(label)
+        # Workspace directory row
+        workspace_layout = QHBoxLayout()
+        workspace_label = QLabel("Workspace Directory:")
+        workspace_layout.addWidget(workspace_label)
 
         # Get current workspace directory from settings
         current_workspace = self.config.get_setting("workspace_directory", "")
         self.workspace_input = QLineEdit()
         self.workspace_input.setText(current_workspace)
         self.workspace_input.setPlaceholderText("Select a folder for storing projects")
-        layout.addWidget(self.workspace_input)
+        workspace_layout.addWidget(self.workspace_input)
 
         # Browse button
-        browse_btn = QPushButton("Browse...")
-        browse_btn.clicked.connect(self.browse_workspace_directory)
-        layout.addWidget(browse_btn)
+        workspace_browse_btn = QPushButton("Browse...")
+        workspace_browse_btn.clicked.connect(self.browse_workspace_directory)
+        workspace_layout.addWidget(workspace_browse_btn)
+
+        layout.addLayout(workspace_layout)
+
+        # Comparison directory row
+        comparison_layout = QHBoxLayout()
+        comparison_label = QLabel("Comparison Directory:")
+        comparison_layout.addWidget(comparison_label)
+
+        # Get current comparison directory from settings
+        current_comparison = self.config.get_setting("comparison_directory", "")
+        self.comparison_input = QLineEdit()
+        self.comparison_input.setText(current_comparison)
+        self.comparison_input.setPlaceholderText("Defaults to {workspace}/printed")
+        comparison_layout.addWidget(self.comparison_input)
+
+        # Browse button
+        comparison_browse_btn = QPushButton("Browse...")
+        comparison_browse_btn.clicked.connect(self.browse_comparison_directory)
+        comparison_layout.addWidget(comparison_browse_btn)
+
+        layout.addLayout(comparison_layout)
 
         group_box.setLayout(layout)
         return group_box
@@ -106,6 +129,23 @@ class ConfigDialog(QDialog):
         )
         if folder:
             self.workspace_input.setText(folder)
+
+    def browse_comparison_directory(self):
+        """Browse for comparison directory."""
+        current = self.comparison_input.text()
+        # If empty, default to workspace/printed
+        if not current:
+            workspace = self.workspace_input.text()
+            if workspace:
+                current = f"{workspace}/printed"
+
+        folder = QFileDialog.getExistingDirectory(
+            self,
+            "Select Comparison Directory",
+            current if current else ""
+        )
+        if folder:
+            self.comparison_input.setText(folder)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -406,6 +446,11 @@ class ConfigDialog(QDialog):
         # Save workspace directory setting
         workspace_dir = self.workspace_input.text().strip()
         self.config.set_setting("workspace_directory", workspace_dir)
+
+        # Save comparison directory setting
+        comparison_dir = self.comparison_input.text().strip()
+        self.config.set_setting("comparison_directory", comparison_dir)
+
         self.config.save_settings()
 
         # Calculate deletions

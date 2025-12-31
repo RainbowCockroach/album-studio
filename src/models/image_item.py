@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+import numpy as np
 from PIL import Image
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
@@ -16,6 +17,7 @@ class ImageItem:
         self.is_cropped = False
         self.crop_box: Optional[dict] = None  # {x, y, width, height} in image coordinates
         self._thumbnail: Optional[QPixmap] = None
+        self.feature_vector: Optional[np.ndarray] = None  # Cached ResNet50 features for similarity search
 
     def set_tags(self, album: Optional[str] = None, size: Optional[str] = None):
         """Set album and/or size tags."""
@@ -72,7 +74,8 @@ class ImageItem:
             "size_tag": self.size_tag,
             "date_taken": self.date_taken.isoformat() if self.date_taken else None,
             "is_cropped": self.is_cropped,
-            "crop_box": self.crop_box
+            "crop_box": self.crop_box,
+            "feature_vector": self.feature_vector.tolist() if self.feature_vector is not None else None
         }
 
     @classmethod
@@ -90,6 +93,11 @@ class ImageItem:
                 item.date_taken = datetime.fromisoformat(date_str)
             except ValueError:
                 pass
+
+        # Restore feature vector if present
+        feature_list = data.get("feature_vector")
+        if feature_list is not None:
+            item.feature_vector = np.array(feature_list)
 
         return item
 

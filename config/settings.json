@@ -14,5 +14,6 @@
     ".JPEG",
     ".PNG",
     ".HEIC"
-  ]
+  ],
+  "comparison_directory": "/Users/vv/STUDIO/album-studio-test/printed"
 }

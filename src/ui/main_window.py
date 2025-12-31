@@ -9,6 +9,7 @@ from ..models.config import Config
 from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
 from ..services.crop_service import CropService
+from ..services.image_similarity_service import ImageSimilarityService
 
 
 class MainWindow(QMainWindow):
@@ -19,7 +20,9 @@ class MainWindow(QMainWindow):
         self.config = Config()
         self.project_manager = ProjectManager()
         self.crop_service = CropService(self.config)
+        self.similarity_service = None  # Lazy load when needed
         self.current_project = None
+        self.last_clicked_image = None  # Track last clicked image for similarity search
 
         self.init_ui()
         self.load_projects()
@@ -83,6 +86,7 @@ class MainWindow(QMainWindow):
         self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
         self.tag_panel.config_requested.connect(self.on_config_requested)
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
+        self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
 
         # Detail panel
         self.detail_panel.rename_requested.connect(self.on_rename_requested)
@@ -202,7 +206,8 @@ class MainWindow(QMainWindow):
 
         try:
             # Archive the project
-            stats = self.project_manager.archive_project(project_name)
+            workspace_dir = self.config.get_setting("workspace_directory", "")
+            stats = self.project_manager.archive_project(project_name, workspace_dir=workspace_dir)
 
             QApplication.restoreOverrideCursor()
 
@@ -372,6 +377,9 @@ class MainWindow(QMainWindow):
 
     def on_image_clicked(self, image_item):
         """Handle single click on image - apply current tags."""
+        # Track last clicked image for similarity search
+        self.last_clicked_image = image_item
+
         album, size = self.tag_panel.get_selected_tags()
 
         if not album or not size:
@@ -610,6 +618,72 @@ class MainWindow(QMainWindow):
             # Refresh the current project to update display if needed
             if self.current_project:
                 self.image_grid.set_project(self.current_project)
+
+    def on_find_similar_requested(self):
+        """Handle find similar button click - open similarity dialog."""
+        print(f"[DEBUG] MainWindow: on_find_similar_requested() called")
+
+        if not self.current_project:
+            print(f"[DEBUG] ERROR: No project loaded")
+            QMessageBox.warning(
+                self,
+                "No Project",
+                "Please load a project first."
+            )
+            return
+
+        if not self.current_project.images:
+            print(f"[DEBUG] ERROR: No images in project")
+            QMessageBox.warning(
+                self,
+                "No Images",
+                "No images in the current project."
+            )
+            return
+
+        print(f"[DEBUG] Project loaded: {self.current_project.name}")
+        print(f"[DEBUG] Number of images: {len(self.current_project.images)}")
+        print(f"[DEBUG] Last clicked image: {self.last_clicked_image.file_path if self.last_clicked_image else 'None'}")
+
+        # Lazy load similarity service
+        if self.similarity_service is None:
+            print(f"[DEBUG] Initializing ImageSimilarityService...")
+            try:
+                self.similarity_service = ImageSimilarityService()
+                print(f"[DEBUG] ImageSimilarityService initialized successfully")
+            except ImportError as e:
+                print(f"[DEBUG] ERROR: ImportError - {e}")
+                QMessageBox.critical(
+                    self,
+                    "Missing Dependencies",
+                    f"PyTorch is required for image similarity.\n\n{str(e)}\n\n"
+                    "Install with: pip install torch torchvision"
+                )
+                return
+            except Exception as e:
+                print(f"[DEBUG] ERROR: Unexpected error - {e}")
+                import traceback
+                traceback.print_exc()
+                return
+        else:
+            print(f"[DEBUG] Using existing ImageSimilarityService instance")
+
+        # Show the dialog
+        from .dialogs.find_similar_dialog import FindSimilarDialog
+
+        print(f"[DEBUG] Creating FindSimilarDialog...")
+        dialog = FindSimilarDialog(self.current_project, self.similarity_service, self.config, self)
+
+        # If user clicked an image before opening dialog, use that as target
+        if self.last_clicked_image:
+            print(f"[DEBUG] Setting target image from last clicked: {self.last_clicked_image.file_path}")
+            dialog.set_target_image(self.last_clicked_image)
+        else:
+            print(f"[DEBUG] No last clicked image, user must select target manually")
+
+        print(f"[DEBUG] Opening dialog...")
+        dialog.exec()
+        print(f"[DEBUG] Dialog closed")
 
     def closeEvent(self, event):
         """Handle window close event."""

@@ -13,6 +13,7 @@ class ToolbarBottom(QWidget):
     config_requested = pyqtSignal()  # Config button clicked
     detail_toggled = pyqtSignal(bool)  # Show/hide detail panel
     tags_changed = pyqtSignal(str, str)  # Emits album, size
+    find_similar_requested = pyqtSignal()  # Find similar images
 
     def __init__(self, config):
         super().__init__()
@@ -34,6 +35,12 @@ class ToolbarBottom(QWidget):
         self.detail_btn.setCheckable(True)
         self.detail_btn.toggled.connect(self.on_detail_toggled)
         layout.addWidget(self.detail_btn)
+
+        # Find similar button
+        self.find_similar_btn = QPushButton("Find similar")
+        self.find_similar_btn.setToolTip("Find visually similar images")
+        self.find_similar_btn.clicked.connect(self.on_find_similar_clicked)
+        layout.addWidget(self.find_similar_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -183,4 +190,10 @@ class ToolbarBottom(QWidget):
         """Handle detail button toggle."""
         self.detail_btn.setText("Hide detail" if checked else "Show detail")
         self.detail_toggled.emit(checked)
+    #endregion
+
+    #region | Find Similar button
+    def on_find_similar_clicked(self):
+        """Handle find similar button click."""
+        self.find_similar_requested.emit()
     #endregion
