@@ -6,7 +6,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Album Studio is a PyQt6 desktop application for organizing and processing photos. Users create projects, tag images with size_group names and print sizes, then batch crop images using smart crop algorithms. The app automatically renames images based on EXIF date metadata and includes AI-powered image similarity search using ResNet50.
 
+**Tech Stack:** Python 3.13+, PyQt6, Pillow, PyTorch (ResNet50), smartcrop, pillow-heif
+
 ## Running the Application
+
+**CRITICAL:** The app MUST be run as a module (`python3 -m src.main`) from the project root, not directly (`python src/main.py`), because the codebase uses relative imports.
 
 **Development mode:**
 
@@ -20,7 +24,11 @@ python3 -m src.main
 pip install -r requirements.txt && python3 -m src.main
 ```
 
-**Note:** The app MUST be run as a module (`python3 -m src.main`) from the project root, not directly (`python src/main.py`), because the codebase uses relative imports.
+**Development dependencies (for building):**
+
+```bash
+pip install -r requirements-dev.txt
+```
 
 ## Building Executables
 
@@ -212,13 +220,17 @@ pixmap.scaled(size, size,
     Qt.AspectRatioMode.KeepAspectRatio,
     Qt.TransformationMode.SmoothTransformation)
 
-# WRONG (will fail)
+# WRONG (will fail in PyQt6)
 pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 ```
 
-**Double-click handling:** The `ImageWidget` uses a timer-based approach to distinguish single vs double clicks. When `mouseReleaseEvent` fires, it starts a timer. If `mouseDoubleClickEvent` fires before timeout, it cancels the timer and sets a flag. This prevents single-click from executing after double-click.
+**Event handling patterns:**
 
-**Preview mode interaction:** When in preview mode, `ImageGrid` overlays `CropOverlay` widgets on each tagged image. The overlay uses `WA_TransparentForMouseEvents` set to False to capture mouse events for dragging. Crop rectangles are constrained to image bounds and maintain aspect ratio based on the size tag's ratio.
+- **Double-click handling:** The `ImageWidget` uses a timer-based approach to distinguish single vs double clicks. When `mouseReleaseEvent` fires, it starts a timer. If `mouseDoubleClickEvent` fires before timeout, it cancels the timer and sets a flag. This prevents single-click from executing after double-click.
+
+- **Preview mode interaction:** When in preview mode, `ImageGrid` overlays `CropOverlay` widgets on each tagged image. The overlay uses `WA_TransparentForMouseEvents` set to False to capture mouse events for dragging. Crop rectangles are constrained to image bounds and maintain aspect ratio based on the size tag's ratio.
+
+- **Signal/slot safety:** Never directly connect widgets to other widgets. All communication goes through `MainWindow` as the orchestrator (see Signal/Slot Architecture section).
 
 ## Image Processing Details
 
@@ -236,65 +248,93 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 ### Feature Extraction Caching
 
-- ResNet50 features cached in-memory (`ImageItem.feature_vector`) and on-disk (`.cache/feature_cache.json`)
+- ResNet50 features cached in-memory (`ImageItem.feature_vector`) and on-disk (`.cache/feature_cache.npz`)
 - Cache file stored alongside comparison images for persistence across sessions
 - Feature extraction is expensive (~1-2 seconds per image), caching enables instant searches
+- Cache uses compressed numpy format (.npz) for efficient storage (~5-10x smaller than JSON)
 
 ## Common Issues
 
 **Images not displaying:**
 
-- Check Qt enum usage in `ImageItem.get_thumbnail()`
-- Verify supported formats in `config/settings.json` match actual file extensions
-- Check console output for errors during `Project.load_images()`
+- Check Qt enum usage in `src/models/image_item.py:54-59` (must use `Qt.AspectRatioMode.KeepAspectRatio`)
+- Verify supported formats in `config/settings.json` line 8-17 match actual file extensions
+- Check console output for errors during `Project.load_images()` in `src/models/project.py`
+- Ensure `ImageLoader.load_pixmap()` in `src/utils/image_loader.py` handles the format
 
 **Double-click not clearing tags:**
 
-- Ensure `ImageWidget.click_timer` is stopped in `mouseDoubleClickEvent`
+- Ensure `ImageWidget.click_timer` is stopped in `mouseDoubleClickEvent` in `src/ui/widgets/image_grid.py`
 - Verify `double_click_flag` is checked in `_handle_single_click`
 
 **Import errors:**
 
-- Always run as module: `python3 -m src.main`
-- Check relative imports use correct depth (`..models`, `.widgets`)
+- Always run as module: `python3 -m src.main` (not `python src/main.py`)
+- Check relative imports use correct depth (`..models` for services, `.widgets` for UI)
+- Entry point is `src/main.py:7` which calls `MainWindow()`
 
 **Config not loading:**
 
-- Config files must exist in `config/` directory
+- Config files must exist in `config/` directory (size_group.json, sizes.json, settings.json)
 - Check JSON syntax if config seems ignored
 - Use "Configure Size Groups" button to edit configs via GUI (preferred over manual editing)
+- Config loaded in `src/models/config.py`
 
 **Preview mode issues:**
 
-- Crop overlay not draggable: Check `WA_TransparentForMouseEvents` is set to False
+- Crop overlay not draggable: Check `WA_TransparentForMouseEvents` is set to False in `src/ui/widgets/crop_overlay.py`
 - Crop rect goes outside image: Verify `set_image_bounds()` is called with correct bounds
-- Aspect ratio wrong: Ensure size tag has valid ratio in `sizes.json`
+- Aspect ratio wrong: Ensure size tag has valid ratio in `config/sizes.json`
+- Preview mode logic in `src/ui/widgets/image_grid.py` `enter_preview_mode()` and `exit_preview_mode()`
 
 **Similarity search not working:**
 
 - Verify PyTorch is installed: `pip install torch torchvision`
-- Check comparison directory exists and contains images
-- Ensure workspace directory is configured in settings
-- Look for `[DEBUG]` logs showing feature extraction progress
+- Check comparison directory exists and contains images (default: `{workspace}/printed/`)
+- Ensure workspace directory is configured in `config/settings.json` line 2
+- Look for `[DEBUG]` logs showing feature extraction progress in console
+- Service implementation: `src/services/image_similarity_service.py`
 
 **Archive creating empty folders:**
 
 - Output folder must contain cropped images (crop images before archiving)
 - Archive only processes images in output folder, not input folder
+- Archive workflow in `src/services/project_manager.py` `archive_project()` method
 
-## Output Structure
+## Workspace & Output Structure
 
-**Projects JSON:** `data/projects.json` stores all project metadata
+**Workspace directory structure** (configured in `config/settings.json`):
 
-**Project data JSON:** `data/projects/{name}/project_data.json` stores image tags and crop positions
+```
+{workspace}/                          # e.g., ~/Photos/album-studio-projects
+├── {project_name}/
+│   ├── input/                       # User adds images here
+│   │   └── 20231225_143022.jpg
+│   └── output/                      # Cropped images organized by tags
+│       └── {size_group_name}/       # e.g., "Wedding Size Group"
+│           └── {size}/              # e.g., "4x6"
+│               └── {filename}.jpg
+├── printed/                         # Archived thumbnails (800px) from all projects
+│   └── 20231225_143022.jpg
+└── {project_name}_output.zip        # Archived output folders
+```
 
-**Cropped images:** `{output_folder}/{size_group_name}/{size}/{filename}.jpg`
+**Application data directory** (`data/` in project root):
 
-Example: `~/Photos/ProjectName/output/Wedding Size Group/4x6/20231225_143022.jpg`
+```
+data/
+├── projects.json                    # All projects metadata
+└── projects/
+    └── {project_name}/
+        └── project_data.json        # Tags, crop positions per project
+```
 
-**Archived thumbnails:** `{workspace}/printed/{filename}.jpg` (global folder, all archived projects)
+**Important paths:**
 
-**Archived zips:** `{workspace}/{project_name}_output.zip`
+- Input folder: `{workspace}/{project_name}/input/`
+- Output folder: `{workspace}/{project_name}/output/`
+- Comparison directory for similarity search: `{workspace}/printed/` (configurable)
+- Feature cache: `{comparison_directory}/.cache/feature_cache.npz`
 
 ## Build Notes
 
@@ -322,9 +362,14 @@ Always convert between these systems when dragging or saving crops.
 
 ### Lazy Loading Pattern
 
-- `ImageSimilarityService` only loaded when user clicks "Find similar"
-- Thumbnails only loaded when `ImageItem.get_thumbnail()` called
-- Prevents loading PyTorch/heavy resources unless needed
+Critical for performance and startup time:
+
+- **Similarity service:** `ImageSimilarityService` only instantiated when user clicks "Find similar" (`MainWindow.similarity_service = None` initially in `src/ui/main_window.py:23`)
+- **PyTorch models:** ResNet50 only loaded when similarity service initializes (saves ~500MB memory)
+- **Thumbnails:** Only generated on-demand via `ImageItem.get_thumbnail()` and cached in `_thumbnail` field
+- **Feature vectors:** Computed once, cached in-memory (`ImageItem.feature_vector`) and on-disk (`.cache/feature_cache.npz`)
+
+When adding heavy dependencies, follow this pattern to avoid bloating startup time.
 
 ### Memory Management
 
@@ -348,3 +393,24 @@ No automated test suite currently exists. Manual testing workflow:
 4. Check console for `[DEBUG]` logs when issues occur
 
 Debug logs are extensive throughout similarity search and archival processes.
+
+## File Structure
+
+```
+album-studio/
+├── src/
+│   ├── main.py              # Application entry point
+│   ├── models/              # Data models (Config, Project, ImageItem)
+│   ├── services/            # Business logic (ProjectManager, CropService, ImageProcessor, ImageSimilarityService)
+│   ├── ui/
+│   │   ├── main_window.py   # Main orchestrator window
+│   │   ├── widgets/         # Reusable UI components (ImageGrid, toolbars, panels, overlays)
+│   │   └── dialogs/         # Modal dialogs (ConfigDialog, FindSimilarDialog)
+│   └── utils/               # Utilities (ImageLoader for HEIC support)
+├── config/                  # JSON configuration files (size_group.json, sizes.json, settings.json)
+├── data/                    # Runtime data (projects.json, project_data per project)
+├── assets/                  # Application icon
+├── build.py                 # Cross-platform build script
+├── BUILD.md                 # Detailed build documentation
+└── requirements.txt         # Python dependencies
+```

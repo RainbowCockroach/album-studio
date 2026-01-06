@@ -1,6 +1,5 @@
 """Service for finding similar images using deep learning feature extraction."""
 import os
-import json
 from typing import List, Tuple, Optional, Dict
 import numpy as np
 from PIL import Image
@@ -10,7 +9,7 @@ _model = None
 _transform = None
 
 CACHE_FOLDER_NAME = ".cache"
-CACHE_FILE_NAME = "feature_cache.json"
+CACHE_FILE_NAME = "feature_cache.npz"
 
 
 class ImageSimilarityService:
@@ -250,13 +249,11 @@ class ImageSimilarityService:
 
             # Get features from cache or extract
             features = cache.get(file_path)
-            if features is not None:
-                features = np.array(features)
-            else:
+            if features is None:
                 features = self.extract_features(file_path)
                 if features is not None:
                     # Update cache
-                    cache[file_path] = features.tolist()
+                    cache[file_path] = features
 
             images.append({
                 'path': file_path,
@@ -274,12 +271,12 @@ class ImageSimilarityService:
         cache_dir = os.path.join(directory, CACHE_FOLDER_NAME)
         return os.path.join(cache_dir, CACHE_FILE_NAME)
 
-    def _load_cache_from_disk(self, directory: str) -> Dict[str, List]:
+    def _load_cache_from_disk(self, directory: str) -> Dict[str, np.ndarray]:
         """
         Load feature vector cache from disk.
 
         Returns:
-            Dictionary mapping image_path -> feature_vector (as list)
+            Dictionary mapping image_path -> feature_vector (as numpy array)
         """
         cache_path = self._get_cache_path(directory)
 
@@ -287,19 +284,20 @@ class ImageSimilarityService:
             return {}
 
         try:
-            with open(cache_path, 'r') as f:
-                cache = json.load(f)
+            loaded = np.load(cache_path, allow_pickle=True)
+            # Convert from numpy archive to regular dict
+            cache = {key: loaded[key] for key in loaded.files}
             return cache
         except Exception as e:
             return {}
 
-    def _save_cache_to_disk(self, directory: str, cache: Dict[str, List]):
+    def _save_cache_to_disk(self, directory: str, cache: Dict[str, np.ndarray]):
         """
         Save feature vector cache to disk.
 
         Args:
             directory: Directory containing the images
-            cache: Dictionary mapping image_path -> feature_vector (as list)
+            cache: Dictionary mapping image_path -> feature_vector (as numpy array)
         """
         cache_dir = os.path.join(directory, CACHE_FOLDER_NAME)
         cache_path = self._get_cache_path(directory)
@@ -308,9 +306,8 @@ class ImageSimilarityService:
             # Create cache directory if it doesn't exist
             os.makedirs(cache_dir, exist_ok=True)
 
-            # Save cache
-            with open(cache_path, 'w') as f:
-                json.dump(cache, f, indent=2)
+            # Save cache as compressed numpy archive
+            np.savez_compressed(cache_path, **cache)
 
         except Exception as e:
             pass
