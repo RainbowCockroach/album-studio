@@ -33,6 +33,9 @@ class MainWindow(QMainWindow):
         # Start in full screen
         self.showMaximized()
 
+        # Enable drag and drop
+        self.setAcceptDrops(True)
+
         # Central widget
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
@@ -245,9 +248,8 @@ class MainWindow(QMainWindow):
             return
 
         from PyQt6.QtWidgets import QFileDialog
-        
+
         # Get supported formats for filter
-        # e.g. "Images (*.png *.jpg *.jpeg)"
         formats = self.config.get_setting("supported_formats", [".png", ".jpg", ".jpeg"])
         filter_str = f"Images ({' '.join(['*' + f for f in formats])})"
 
@@ -261,38 +263,61 @@ class MainWindow(QMainWindow):
         if not file_paths:
             return
 
+        # Use shared method to process files
+        added_count = self._add_images_to_project(file_paths)
+
+        if added_count > 0:
+            QMessageBox.information(
+                self,
+                "Photos Added",
+                f"Successfully added and sorted {added_count} photos."
+            )
+
+    def _add_images_to_project(self, file_paths: list) -> int:
+        """
+        Add image files to the current project.
+
+        Args:
+            file_paths: List of absolute file paths to add
+
+        Returns:
+            Number of successfully added images
+        """
+        if not self.current_project or not file_paths:
+            return 0
+
         # Show busy cursor
         QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
-        
+
         try:
             import shutil
             import os
-            
+
             added_count = 0
-            
+
             for src_path in file_paths:
                 if not os.path.exists(src_path):
                     continue
-                    
+
                 # Copy to project input folder
                 filename = os.path.basename(src_path)
                 dest_path = os.path.join(self.current_project.input_folder, filename)
-                
+
                 # Handle potential duplicate names before renaming
                 base, ext = os.path.splitext(filename)
                 counter = 1
                 while os.path.exists(dest_path):
                     dest_path = os.path.join(self.current_project.input_folder, f"{base}_{counter}{ext}")
                     counter += 1
-                
+
                 try:
                     shutil.copy2(src_path, dest_path)
-                    
+
                     # Manually add to project images temporarily so they can be processed
                     from ..models.image_item import ImageItem
                     image_item = ImageItem(dest_path)
                     self.current_project.images.append(image_item)
-                    
+
                     added_count += 1
                 except Exception as e:
                     print(f"Error copying file {src_path}: {e}")
@@ -301,20 +326,15 @@ class MainWindow(QMainWindow):
                 # Rename all images in project (including new ones) by date
                 date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
                 ImageProcessor.rename_by_date(self.current_project, date_format)
-                
+
                 # Reload project to refresh everything cleanly
                 self.load_project(self.current_project.name)
-                
-                QApplication.restoreOverrideCursor()
-                QMessageBox.information(
-                    self,
-                    "Photos Added",
-                    f"Successfully added and sorted {added_count} photos."
-                )
-            
+
+            return added_count
+
         except Exception as e:
-            QApplication.restoreOverrideCursor()
             QMessageBox.critical(self, "Error", f"Failed to add photos: {str(e)}")
+            return 0
         finally:
             QApplication.restoreOverrideCursor()
 
@@ -675,3 +695,65 @@ class MainWindow(QMainWindow):
             self.project_manager.save_project(self.current_project)
 
         event.accept()
+
+    def dragEnterEvent(self, event):
+        """Handle drag enter event - validate if we can accept the drop."""
+        # Only accept if we have a project loaded
+        if not self.current_project:
+            event.ignore()
+            return
+
+        # Check if drag contains file URLs
+        if event.mimeData().hasUrls():
+            # Check if at least one valid image file
+            urls = event.mimeData().urls()
+            for url in urls:
+                if url.isLocalFile():
+                    file_path = url.toLocalFile()
+                    # Check if it's a supported format
+                    formats = self.config.get_setting("supported_formats", [".png", ".jpg", ".jpeg"])
+                    if any(file_path.lower().endswith(fmt) for fmt in formats):
+                        event.acceptProposedAction()
+                        return
+
+        event.ignore()
+
+    def dragMoveEvent(self, event):
+        """Handle drag move event - allow dragging over the window."""
+        if self.current_project and event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):
+        """Handle drop event - process dropped files."""
+        if not self.current_project:
+            event.ignore()
+            return
+
+        # Get file paths from dropped URLs
+        urls = event.mimeData().urls()
+        file_paths = []
+
+        for url in urls:
+            if url.isLocalFile():
+                file_path = url.toLocalFile()
+                # Filter by supported formats
+                formats = self.config.get_setting("supported_formats", [".png", ".jpg", ".jpeg"])
+                if any(file_path.lower().endswith(fmt) for fmt in formats):
+                    file_paths.append(file_path)
+
+        if file_paths:
+            # Process the files using shared method
+            added_count = self._add_images_to_project(file_paths)
+
+            if added_count > 0:
+                QMessageBox.information(
+                    self,
+                    "Photos Added",
+                    f"Successfully added and sorted {added_count} photos via drag-and-drop."
+                )
+
+            event.acceptProposedAction()
+        else:
+            event.ignore()
