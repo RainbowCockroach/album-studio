@@ -313,6 +313,9 @@ class MainWindow(QMainWindow):
                 try:
                     shutil.copy2(src_path, dest_path)
 
+                    # Correct image orientation based on EXIF
+                    ImageProcessor.correct_image_orientation(dest_path)
+
                     # Manually add to project images temporarily so they can be processed
                     from ..models.image_item import ImageItem
                     image_item = ImageItem(dest_path)

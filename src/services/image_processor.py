@@ -2,7 +2,7 @@ import os
 import shutil
 from datetime import datetime
 from typing import Optional
-from PIL import Image
+from PIL import Image, ImageOps
 import piexif
 
 
@@ -70,7 +70,7 @@ class ImageProcessor:
             # Try efficient Pillow reading first
             with Image.open(file_path) as img:
                 info["Dimensions"] = f"{img.width} x {img.height}"
-                info["Format"] = img.format
+                info["Format"] = img.format or "Unknown"
                 
                 exif = img.getexif()
                 if exif:
@@ -193,3 +193,48 @@ class ImageProcessor:
         except Exception as e:
             print(f"Error generating thumbnail for {file_path}: {e}")
             return None
+
+    @staticmethod
+    def correct_image_orientation(file_path: str) -> bool:
+        """
+        Correct image orientation based on EXIF orientation tag.
+        Rotates/flips the image as needed and saves it back with corrected orientation.
+
+        Args:
+            file_path: Path to the image file
+
+        Returns:
+            True if orientation was corrected, False otherwise
+        """
+        try:
+            # Register HEIC support
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+
+            # Open the image
+            with Image.open(file_path) as img:
+                # Check if image has EXIF orientation tag
+                exif = img.getexif()
+                orientation = exif.get(274) if exif else None  # 274 is the Orientation tag
+
+                # If no orientation tag or orientation is normal (1), no correction needed
+                if not orientation or orientation == 1:
+                    return False
+
+                # Apply EXIF orientation transformation
+                # This automatically rotates/flips based on the EXIF orientation tag
+                corrected_img = ImageOps.exif_transpose(img)
+
+                # If correction was needed (image was rotated/flipped)
+                if corrected_img is not None:
+                    # Save the corrected image back
+                    # This will bake the rotation into the image and remove the orientation tag
+                    corrected_img.save(file_path, quality=95, optimize=True)
+                    print(f"Corrected orientation for: {os.path.basename(file_path)}")
+                    return True
+
+            return False
+
+        except Exception as e:
+            print(f"Error correcting orientation for {file_path}: {e}")
+            return False
