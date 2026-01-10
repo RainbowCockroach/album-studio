@@ -25,8 +25,18 @@ class CropOverlay(QWidget):
         self.drag_start_pos = QPoint()
         self.rect_start_pos = QRect()
 
+        # Resizing state
+        self.resizing = False
+        self.resize_corner = None  # 'top_left', 'top_right', 'bottom_left', 'bottom_right'
+        self.resize_start_pos = QPoint()
+        self.resize_start_rect = QRect()
+
         # Minimum crop size
         self.min_size = 50
+
+        # Handle size for corner detection
+        self.handle_size = 8
+        self.handle_hit_area = 16  # Larger hit area for easier grabbing
 
     def set_aspect_ratio(self, ratio: float):
         """Set the aspect ratio for the crop rectangle (width/height)."""
@@ -54,6 +64,164 @@ class CropOverlay(QWidget):
             'width': self.crop_rect.width(),
             'height': self.crop_rect.height()
         }
+
+    def _get_corner_at_pos(self, pos: QPoint) -> str | None:
+        """Check if position is near a corner handle. Returns corner name or None."""
+        hit_area = self.handle_hit_area
+
+        corners = {
+            'top_left': self.crop_rect.topLeft(),
+            'top_right': self.crop_rect.topRight(),
+            'bottom_left': self.crop_rect.bottomLeft(),
+            'bottom_right': self.crop_rect.bottomRight()
+        }
+
+        for corner_name, corner_pos in corners.items():
+            # Check if mouse is within hit area of this corner
+            if abs(pos.x() - corner_pos.x()) <= hit_area and abs(pos.y() - corner_pos.y()) <= hit_area:
+                return corner_name
+
+        return None
+
+    def _resize_from_corner(self, corner: str, current_pos: QPoint) -> QRect:
+        """Calculate new crop rectangle when resizing from a corner, maintaining aspect ratio."""
+        delta = current_pos - self.resize_start_pos
+        new_rect = QRect(self.resize_start_rect)
+
+        # Calculate size change based on which corner is being dragged
+        # We'll use the larger dimension change to maintain aspect ratio
+        if corner == 'bottom_right':
+            # Expanding: moving right and down increases size
+            # Use the larger delta to maintain aspect ratio
+            width_delta = delta.x()
+            height_delta = delta.y()
+
+            # Calculate what the new dimensions would be
+            new_width = max(self.min_size, self.resize_start_rect.width() + width_delta)
+            new_height = max(self.min_size, self.resize_start_rect.height() + height_delta)
+
+            # Determine which dimension to prioritize based on aspect ratio
+            # Calculate what height should be for the new width
+            height_for_width = new_width / self.aspect_ratio
+            # Calculate what width should be for the new height
+            width_for_height = new_height * self.aspect_ratio
+
+            # Use the smaller of the two to ensure we don't exceed bounds
+            if height_for_width <= new_height:
+                # Width is the limiting factor
+                new_rect.setWidth(int(new_width))
+                new_rect.setHeight(int(height_for_width))
+            else:
+                # Height is the limiting factor
+                new_rect.setHeight(int(new_height))
+                new_rect.setWidth(int(width_for_height))
+
+        elif corner == 'bottom_left':
+            # Moving left and down
+            width_delta = -delta.x()  # Moving left increases width
+            height_delta = delta.y()
+
+            new_width = max(self.min_size, self.resize_start_rect.width() + width_delta)
+            new_height = max(self.min_size, self.resize_start_rect.height() + height_delta)
+
+            height_for_width = new_width / self.aspect_ratio
+            width_for_height = new_height * self.aspect_ratio
+
+            if height_for_width <= new_height:
+                final_width = int(new_width)
+                final_height = int(height_for_width)
+            else:
+                final_height = int(new_height)
+                final_width = int(width_for_height)
+
+            # Move left edge
+            new_rect.setLeft(self.resize_start_rect.right() - final_width)
+            new_rect.setWidth(final_width)
+            new_rect.setHeight(final_height)
+
+        elif corner == 'top_right':
+            # Moving right and up
+            width_delta = delta.x()
+            height_delta = -delta.y()  # Moving up increases height
+
+            new_width = max(self.min_size, self.resize_start_rect.width() + width_delta)
+            new_height = max(self.min_size, self.resize_start_rect.height() + height_delta)
+
+            height_for_width = new_width / self.aspect_ratio
+            width_for_height = new_height * self.aspect_ratio
+
+            if height_for_width <= new_height:
+                final_width = int(new_width)
+                final_height = int(height_for_width)
+            else:
+                final_height = int(new_height)
+                final_width = int(width_for_height)
+
+            # Move top edge
+            new_rect.setTop(self.resize_start_rect.bottom() - final_height)
+            new_rect.setWidth(final_width)
+            new_rect.setHeight(final_height)
+
+        elif corner == 'top_left':
+            # Moving left and up
+            width_delta = -delta.x()
+            height_delta = -delta.y()
+
+            new_width = max(self.min_size, self.resize_start_rect.width() + width_delta)
+            new_height = max(self.min_size, self.resize_start_rect.height() + height_delta)
+
+            height_for_width = new_width / self.aspect_ratio
+            width_for_height = new_height * self.aspect_ratio
+
+            if height_for_width <= new_height:
+                final_width = int(new_width)
+                final_height = int(height_for_width)
+            else:
+                final_height = int(new_height)
+                final_width = int(width_for_height)
+
+            # Move both top and left edges
+            new_rect.setLeft(self.resize_start_rect.right() - final_width)
+            new_rect.setTop(self.resize_start_rect.bottom() - final_height)
+            new_rect.setWidth(final_width)
+            new_rect.setHeight(final_height)
+
+        # Constrain to image bounds
+        new_rect = self._constrain_to_bounds(new_rect)
+
+        return new_rect
+
+    def _constrain_to_bounds(self, rect: QRect) -> QRect:
+        """Constrain rectangle to stay within image bounds."""
+        constrained = QRect(rect)
+
+        # Ensure minimum size
+        if constrained.width() < self.min_size:
+            constrained.setWidth(self.min_size)
+        if constrained.height() < self.min_size:
+            constrained.setHeight(self.min_size)
+
+        # Constrain to image bounds
+        if constrained.left() < self.image_bounds.left():
+            constrained.moveLeft(self.image_bounds.left())
+        if constrained.top() < self.image_bounds.top():
+            constrained.moveTop(self.image_bounds.top())
+        if constrained.right() > self.image_bounds.right():
+            # Try to move left first
+            constrained.moveLeft(self.image_bounds.right() - constrained.width())
+            # If still doesn't fit, shrink it
+            if constrained.left() < self.image_bounds.left():
+                constrained.setLeft(self.image_bounds.left())
+                constrained.setWidth(self.image_bounds.width())
+        if constrained.bottom() > self.image_bounds.bottom():
+            # Try to move up first
+            constrained.moveTop(self.image_bounds.bottom() - constrained.height())
+            # If still doesn't fit, shrink it
+            if constrained.top() < self.image_bounds.top():
+                constrained.setTop(self.image_bounds.top())
+                constrained.setHeight(self.image_bounds.height())
+
+        return constrained
 
     def paintEvent(self, a0):
         """Draw the crop overlay."""
@@ -90,7 +258,6 @@ class CropOverlay(QWidget):
         painter.drawRect(self.crop_rect)
 
         # Draw corner handles
-        handle_size = 8
         handle_color = QColor(255, 255, 255)
         painter.setBrush(handle_color)
 
@@ -103,26 +270,40 @@ class CropOverlay(QWidget):
 
         for corner in corners:
             handle_rect = QRect(
-                corner.x() - handle_size // 2,
-                corner.y() - handle_size // 2,
-                handle_size,
-                handle_size
+                corner.x() - self.handle_size // 2,
+                corner.y() - self.handle_size // 2,
+                self.handle_size,
+                self.handle_size
             )
             painter.fillRect(handle_rect, handle_color)
 
     def mousePressEvent(self, a0):
-        """Start dragging the crop rectangle."""
+        """Start dragging or resizing the crop rectangle."""
         if a0:
             if a0.button() == Qt.MouseButton.LeftButton:
-                if self.crop_rect.contains(a0.pos()):
+                # Check if clicking on a corner handle (resize mode)
+                corner = self._get_corner_at_pos(a0.pos())
+                if corner:
+                    self.resizing = True
+                    self.resize_corner = corner
+                    self.resize_start_pos = a0.pos()
+                    self.resize_start_rect = QRect(self.crop_rect)
+                # Check if clicking inside the crop rect (drag mode)
+                elif self.crop_rect.contains(a0.pos()):
                     self.dragging = True
                     self.drag_start_pos = a0.pos()
                     self.rect_start_pos = QRect(self.crop_rect)
 
     def mouseMoveEvent(self, a0):
-        """Drag the crop rectangle."""
+        """Handle dragging or resizing the crop rectangle."""
         if a0:
-            if self.dragging:
+            if self.resizing:
+                # Resize mode
+                new_rect = self._resize_from_corner(self.resize_corner, a0.pos())
+                self.crop_rect = new_rect
+                self.update()
+            elif self.dragging:
+                # Drag mode
                 delta = a0.pos() - self.drag_start_pos
 
                 # Calculate new position
@@ -146,18 +327,30 @@ class CropOverlay(QWidget):
                 self.crop_rect = new_rect
                 self.update()
             else:
-                # Change cursor if over crop rect
-                if self.crop_rect.contains(a0.pos()):
+                # Update cursor based on position
+                corner = self._get_corner_at_pos(a0.pos())
+                if corner:
+                    # Show resize cursor based on corner
+                    if corner in ['top_left', 'bottom_right']:
+                        self.setCursor(Qt.CursorShape.SizeFDiagCursor)
+                    else:  # top_right, bottom_left
+                        self.setCursor(Qt.CursorShape.SizeBDiagCursor)
+                elif self.crop_rect.contains(a0.pos()):
                     self.setCursor(Qt.CursorShape.SizeAllCursor)
                 else:
                     self.setCursor(Qt.CursorShape.ArrowCursor)
 
     def mouseReleaseEvent(self, a0):
-        """Stop dragging and emit signal."""
+        """Stop dragging or resizing and emit signal."""
         if a0:
-            if a0.button() == Qt.MouseButton.LeftButton and self.dragging:
-                self.dragging = False
-                self.crop_changed.emit(self.get_crop_dict())
+            if a0.button() == Qt.MouseButton.LeftButton:
+                if self.dragging:
+                    self.dragging = False
+                    self.crop_changed.emit(self.get_crop_dict())
+                elif self.resizing:
+                    self.resizing = False
+                    self.resize_corner = None
+                    self.crop_changed.emit(self.get_crop_dict())
 
     def resizeEvent(self, a0):
         """Handle widget resize - maintain crop rectangle within image bounds."""
