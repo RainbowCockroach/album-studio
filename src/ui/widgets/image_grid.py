@@ -66,6 +66,7 @@ class ImageGrid(QWidget):
             image_widget = ImageWidget(image_item, self.thumbnail_size)
             image_widget.clicked.connect(lambda item=image_item: self.on_image_clicked(item))
             image_widget.double_clicked.connect(lambda item=image_item: self.on_image_double_clicked(item))
+            image_widget.right_clicked.connect(self.on_image_right_clicked)
 
             # Add to grid
             self.grid_layout.addWidget(image_widget, row, col)
@@ -94,6 +95,11 @@ class ImageGrid(QWidget):
             is_selected = image_item in self.selected_items
             widget.set_selected(is_selected)
             widget.update_border()
+
+    def refresh_image(self, image_item):
+        """Refresh the thumbnail for a specific image."""
+        if image_item in self.image_widgets:
+            self.image_widgets[image_item].refresh_thumbnail()
 
     def toggle_selection_mode(self, enabled: bool):
         """Enable or disable selection mode."""
@@ -129,6 +135,12 @@ class ImageGrid(QWidget):
         if not self.preview_mode and not self.selection_mode:
             self.image_double_clicked.emit(image_item)
 
+    def on_image_right_clicked(self, file_path: str):
+        """Handle right click on image - open image viewer dialog."""
+        from ..dialogs.image_viewer_dialog import ImageViewerDialog
+        dialog = ImageViewerDialog(file_path, self)
+        dialog.exec()
+
     def enter_preview_mode(self):
         """Enter crop preview mode for all fully tagged images."""
         if self.selection_mode:
@@ -151,6 +163,7 @@ class ImageWidget(QFrame):
 
     clicked = pyqtSignal()
     double_clicked = pyqtSignal()
+    right_clicked = pyqtSignal(str)  # Emits file path for image viewer
 
     def __init__(self, image_item, thumbnail_size):
         super().__init__()
@@ -207,6 +220,14 @@ class ImageWidget(QFrame):
         self.is_selected = selected
         self.update_border()
 
+    def refresh_thumbnail(self):
+        """Reload the thumbnail from the image item."""
+        pixmap = self.image_item.get_thumbnail(self.thumbnail_size)
+        if pixmap:
+            self.thumbnail_label.setPixmap(pixmap)
+        else:
+            self.thumbnail_label.setText("No Image")
+
     def update_border(self):
         """Update border color based on tag status or selection."""
         if self.is_selected:
@@ -243,6 +264,9 @@ class ImageWidget(QFrame):
         if a0:
             if a0.button() == Qt.MouseButton.LeftButton:
                 self.click_pos = a0.pos()
+            elif a0.button() == Qt.MouseButton.RightButton:
+                # Emit signal to open image viewer
+                self.right_clicked.emit(self.image_item.file_path)
 
     def mouseReleaseEvent(self, a0):
         """Handle mouse release events."""

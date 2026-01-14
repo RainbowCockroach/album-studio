@@ -14,6 +14,7 @@ class ToolbarBottom(QWidget):
     detail_toggled = pyqtSignal(bool)  # Show/hide detail panel
     tags_changed = pyqtSignal(str, str)  # Emits album, size
     find_similar_requested = pyqtSignal()  # Find similar images
+    rotate_requested = pyqtSignal()  # Rotate selected image
 
     def __init__(self, config):
         super().__init__()
@@ -41,6 +42,12 @@ class ToolbarBottom(QWidget):
         self.find_similar_btn.setToolTip("Find visually similar images")
         self.find_similar_btn.clicked.connect(self.on_find_similar_clicked)
         layout.addWidget(self.find_similar_btn)
+
+        # Rotate button
+        self.rotate_btn = QPushButton("Rotate")
+        self.rotate_btn.setToolTip("Rotate selected image 90° clockwise")
+        self.rotate_btn.clicked.connect(self.on_rotate_clicked)
+        layout.addWidget(self.rotate_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -104,6 +111,7 @@ class ToolbarBottom(QWidget):
         self.cancel_btn.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)
         self.refresh_btn.setEnabled(enabled)
+        self.rotate_btn.setEnabled(enabled)
 
     #region | Group + size dropdowns
     def load_size_group(self):
@@ -196,4 +204,10 @@ class ToolbarBottom(QWidget):
     def on_find_similar_clicked(self):
         """Handle find similar button click."""
         self.find_similar_requested.emit()
+    #endregion
+
+    #region | Rotate button
+    def on_rotate_clicked(self):
+        """Handle rotate button click."""
+        self.rotate_requested.emit()
     #endregion

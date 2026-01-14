@@ -90,6 +90,7 @@ class MainWindow(QMainWindow):
         self.tag_panel.config_requested.connect(self.on_config_requested)
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
+        self.tag_panel.rotate_requested.connect(self.on_rotate_requested)
 
         # Detail panel
         self.detail_panel.rename_requested.connect(self.on_rename_requested)
@@ -690,6 +691,38 @@ class MainWindow(QMainWindow):
             dialog.find_similar()
 
         dialog.exec()
+
+    def on_rotate_requested(self):
+        """Handle rotate button click - rotate the selected image 90° clockwise."""
+        if not self.last_clicked_image:
+            QMessageBox.warning(
+                self,
+                "No Image Selected",
+                "Please click an image first to select it for rotation."
+            )
+            return
+
+        # Rotate the image file
+        success = ImageProcessor.rotate_image(self.last_clicked_image.file_path)
+
+        if success:
+            # Clear cached thumbnail so it gets regenerated
+            self.last_clicked_image.clear_thumbnail_cache()
+            # Clear any saved crop box since dimensions changed
+            self.last_clicked_image.crop_box = None
+            # Save project to persist the cleared crop box
+            self.project_manager.save_project(self.current_project)
+            # Refresh the thumbnail in the grid
+            self.image_grid.refresh_image(self.last_clicked_image)
+            # Update detail panel if visible
+            info = ImageProcessor.get_exif_info(self.last_clicked_image.file_path)
+            self.detail_panel.set_data(info, self.last_clicked_image)
+        else:
+            QMessageBox.warning(
+                self,
+                "Rotation Failed",
+                f"Failed to rotate image: {self.last_clicked_image.file_path}"
+            )
 
     def closeEvent(self, event):
         """Handle window close event."""

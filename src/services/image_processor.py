@@ -238,3 +238,40 @@ class ImageProcessor:
         except Exception as e:
             print(f"Error correcting orientation for {file_path}: {e}")
             return False
+
+    @staticmethod
+    def rotate_image(file_path: str, degrees: int = -90) -> bool:
+        """
+        Rotate image by specified degrees and save it back.
+
+        Args:
+            file_path: Path to the image file
+            degrees: Rotation angle (default -90 for 90° clockwise, use 90 for counter-clockwise)
+
+        Returns:
+            True if rotation was successful, False otherwise
+        """
+        try:
+            # Register HEIC support
+            import pillow_heif
+            pillow_heif.register_heif_opener()
+
+            with Image.open(file_path) as img:
+                # Rotate the image (negative for clockwise in Pillow)
+                rotated_img = img.rotate(degrees, expand=True)
+
+                # Preserve format info
+                img_format = img.format or "JPEG"
+
+                # Save the rotated image back
+                if img_format.upper() in ("JPEG", "JPG"):
+                    rotated_img.save(file_path, format="JPEG", quality=95, optimize=True)
+                else:
+                    rotated_img.save(file_path, format=img_format)
+
+                print(f"Rotated image: {os.path.basename(file_path)}")
+                return True
+
+        except Exception as e:
+            print(f"Error rotating image {file_path}: {e}")
+            return False
