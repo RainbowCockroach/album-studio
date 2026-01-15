@@ -39,7 +39,7 @@ def build_macos():
     cmd = [arg for arg in cmd if arg]
 
     subprocess.run(cmd, check=True)
-    print("\n✓ macOS build complete! Check dist/AlbumStudio.app")
+    print("\n[OK] macOS build complete! Check dist/AlbumStudio.app")
 
 
 def build_windows():
@@ -61,7 +61,7 @@ def build_windows():
     cmd = [arg for arg in cmd if arg]
 
     subprocess.run(cmd, check=True)
-    print("\n✓ Windows build complete! Check dist/AlbumStudio/")
+    print("\n[OK] Windows build complete! Check dist/AlbumStudio/")
 
 
 def build_spec_file():
@@ -135,7 +135,7 @@ app = BUNDLE(
     with open('AlbumStudio.spec', 'w') as f:
         f.write(spec_content)
 
-    print("✓ Generated AlbumStudio.spec file")
+    print("[OK] Generated AlbumStudio.spec file")
 
 
 def main():
@@ -148,7 +148,7 @@ def main():
         subprocess.run(['pyinstaller', '--version'],
                       capture_output=True, check=True)
     except (subprocess.CalledProcessError, FileNotFoundError):
-        print("\n❌ PyInstaller not found!")
+        print("\n[ERROR] PyInstaller not found!")
         print("Install it with: pip install pyinstaller")
         sys.exit(1)
 
@@ -160,7 +160,7 @@ def main():
 
         if command == 'clean':
             clean_build_folders()
-            print("✓ Cleaned build folders")
+            print("[OK] Cleaned build folders")
             return
 
         elif command == 'spec':
