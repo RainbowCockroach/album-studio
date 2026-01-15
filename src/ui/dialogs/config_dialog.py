@@ -5,7 +5,7 @@ from PyQt6.QtWidgets import (
     QFileDialog, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox
 )
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QLocale
 
 
 class ConfigDialog(QDialog):
@@ -197,8 +197,9 @@ class ConfigDialog(QDialog):
             size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
             self.costs_table.setItem(row, 0, size_item)
 
-            # Cost spinbox
+            # Cost spinbox (use C locale to accept period as decimal separator)
             cost_spinbox = QDoubleSpinBox()
+            cost_spinbox.setLocale(QLocale(QLocale.Language.C))
             cost_spinbox.setRange(0, 999999)
             cost_spinbox.setDecimals(2)
             cost_spinbox.setValue(current_costs.get(size_ratio, 0))
