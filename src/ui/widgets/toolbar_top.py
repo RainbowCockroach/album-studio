@@ -3,6 +3,8 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QComboBox, QPushButton,
                              QDialogButtonBox, QFormLayout)
 from PyQt6.QtCore import pyqtSignal
 
+from ...version import __version__
+
 
 class ProjectToolbar(QWidget):
     """Top toolbar with project selector and new project button."""
@@ -13,9 +15,12 @@ class ProjectToolbar(QWidget):
     add_photo_requested = pyqtSignal()
     delete_mode_toggled = pyqtSignal(bool)
     delete_confirmed = pyqtSignal()
+    update_requested = pyqtSignal()  # Emitted when user clicks update button
 
     def __init__(self):
         super().__init__()
+        self._update_available = False
+        self._update_version = ""
         self.init_ui()
 
     def init_ui(self):
@@ -75,6 +80,22 @@ class ProjectToolbar(QWidget):
 
         layout.addStretch()
 
+        # Update button (hidden by default, shown when update available)
+        self.update_btn = QPushButton()
+        self.update_btn.setStyleSheet(
+            "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; "
+            "padding: 5px 15px; border-radius: 4px; }"
+            "QPushButton:hover { background-color: #45a049; }"
+        )
+        self.update_btn.clicked.connect(self.update_requested.emit)
+        self.update_btn.hide()
+        layout.addWidget(self.update_btn)
+
+        # Version label
+        self.version_label = QLabel(f"v{__version__}")
+        self.version_label.setStyleSheet("color: #888; font-size: 11px; padding: 0 5px;")
+        layout.addWidget(self.version_label)
+
         self.setLayout(layout)
 
     def toggle_delete_mode(self, enabled: bool):
@@ -131,6 +152,28 @@ class ProjectToolbar(QWidget):
     def set_total_cost(self, cost: float):
         """Update the total cost display."""
         self.total_cost_label.setText(f"Total: {cost:.2f}")
+
+    def show_update_available(self, version: str):
+        """Show the update available button."""
+        self._update_available = True
+        self._update_version = version
+        self.update_btn.setText(f"Update Available (v{version})")
+        self.update_btn.show()
+
+    def hide_update_button(self):
+        """Hide the update button."""
+        self._update_available = False
+        self.update_btn.hide()
+
+    def set_update_button_downloading(self):
+        """Show downloading state on update button."""
+        self.update_btn.setText("Downloading...")
+        self.update_btn.setEnabled(False)
+
+    def set_update_button_installing(self):
+        """Show installing state on update button."""
+        self.update_btn.setText("Installing...")
+        self.update_btn.setEnabled(False)
 
 
 class NewProjectDialog(QDialog):
