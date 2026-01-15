@@ -1,0 +1,119 @@
+name: Build and Release
+
+on:
+  push:
+    branches:
+      - main
+
+# Prevent concurrent builds on the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build macOS app
+        run: python build.py macos
+
+      - name: Create DMG
+        run: |
+          hdiutil create -volname "AlbumStudio" -srcfolder dist/AlbumStudio.app -ov -format UDZO dist/AlbumStudio-macOS.dmg
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlbumStudio-macOS
+          path: dist/AlbumStudio-macOS.dmg
+          retention-days: 5
+
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build Windows app
+        run: python build.py windows
+
+      - name: Create ZIP archive
+        run: |
+          Compress-Archive -Path dist/AlbumStudio/* -DestinationPath dist/AlbumStudio-Windows.zip
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: AlbumStudio-Windows
+          path: dist/AlbumStudio-Windows.zip
+          retention-days: 5
+
+  release:
+    needs: [build-macos, build-windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AlbumStudio-macOS
+          path: artifacts/
+
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: AlbumStudio-Windows
+          path: artifacts/
+
+      - name: Generate release tag
+        id: tag
+        run: |
+          echo "release_tag=build-$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+          echo "release_name=Build $(date +'%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          name: ${{ steps.tag.outputs.release_name }}
+          body: |
+            Automated build from main branch.
+
+            **Commit:** ${{ github.sha }}
+            **Message:** ${{ github.event.head_commit.message }}
+
+            ## Downloads
+            - **macOS:** AlbumStudio-macOS.dmg
+            - **Windows:** AlbumStudio-Windows.zip (extract and run AlbumStudio.exe)
+          files: |
+            artifacts/AlbumStudio-macOS.dmg
+            artifacts/AlbumStudio-Windows.zip
+          draft: false
+          prerelease: false
