@@ -192,34 +192,64 @@ class CropOverlay(QWidget):
         return new_rect
 
     def _constrain_to_bounds(self, rect: QRect) -> QRect:
-        """Constrain rectangle to stay within image bounds."""
+        """Constrain rectangle to stay within image bounds while maintaining aspect ratio."""
         constrained = QRect(rect)
 
-        # Ensure minimum size
-        if constrained.width() < self.min_size:
-            constrained.setWidth(self.min_size)
-        if constrained.height() < self.min_size:
-            constrained.setHeight(self.min_size)
+        # Ensure minimum size while maintaining aspect ratio
+        if constrained.width() < self.min_size or constrained.height() < self.min_size:
+            # Calculate minimum dimensions that satisfy both min_size and aspect ratio
+            min_width_for_height = self.min_size * self.aspect_ratio
+            min_height_for_width = self.min_size / self.aspect_ratio
 
-        # Constrain to image bounds
+            if self.aspect_ratio >= 1.0:
+                # Wider than tall: height is the limiting factor
+                new_height = max(self.min_size, constrained.height())
+                new_width = int(new_height * self.aspect_ratio)
+                if new_width < self.min_size:
+                    new_width = self.min_size
+                    new_height = int(new_width / self.aspect_ratio)
+            else:
+                # Taller than wide: width is the limiting factor
+                new_width = max(self.min_size, constrained.width())
+                new_height = int(new_width / self.aspect_ratio)
+                if new_height < self.min_size:
+                    new_height = self.min_size
+                    new_width = int(new_height * self.aspect_ratio)
+
+            constrained.setWidth(new_width)
+            constrained.setHeight(new_height)
+
+        # Check if rect fits within image bounds, shrink proportionally if needed
+        if constrained.width() > self.image_bounds.width() or constrained.height() > self.image_bounds.height():
+            # Calculate max size that fits within bounds while maintaining aspect ratio
+            max_width = self.image_bounds.width()
+            max_height = self.image_bounds.height()
+
+            # Try fitting by width
+            fit_by_width_w = max_width
+            fit_by_width_h = int(max_width / self.aspect_ratio)
+
+            # Try fitting by height
+            fit_by_height_h = max_height
+            fit_by_height_w = int(max_height * self.aspect_ratio)
+
+            # Choose the one that fits within bounds
+            if fit_by_width_h <= max_height:
+                constrained.setWidth(fit_by_width_w)
+                constrained.setHeight(fit_by_width_h)
+            else:
+                constrained.setWidth(fit_by_height_w)
+                constrained.setHeight(fit_by_height_h)
+
+        # Now constrain position (just move, don't resize)
         if constrained.left() < self.image_bounds.left():
             constrained.moveLeft(self.image_bounds.left())
         if constrained.top() < self.image_bounds.top():
             constrained.moveTop(self.image_bounds.top())
         if constrained.right() > self.image_bounds.right():
-            # Try to move left first
             constrained.moveLeft(self.image_bounds.right() - constrained.width())
-            # If still doesn't fit, shrink it
-            if constrained.left() < self.image_bounds.left():
-                constrained.setLeft(self.image_bounds.left())
-                constrained.setWidth(self.image_bounds.width())
         if constrained.bottom() > self.image_bounds.bottom():
-            # Try to move up first
             constrained.moveTop(self.image_bounds.bottom() - constrained.height())
-            # If still doesn't fit, shrink it
-            if constrained.top() < self.image_bounds.top():
-                constrained.setTop(self.image_bounds.top())
-                constrained.setHeight(self.image_bounds.height())
 
         return constrained
 
