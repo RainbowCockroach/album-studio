@@ -20,7 +20,15 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
+
+      - name: Set version number
+        run: |
+          VERSION_BASE=$(grep -o '__version_base__\s*=\s*"[^"]*"' src/version.py | cut -d'"' -f2)
+          FULL_VERSION="${VERSION_BASE}.${{ github.run_number }}"
+          echo "Building version: $FULL_VERSION"
+          sed -i '' "s/__version__ = \".*\"/__version__ = \"$FULL_VERSION\"/" src/version.py
+          cat src/version.py
 
       - name: Install dependencies
         run: |
@@ -50,7 +58,18 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: "3.13"
+
+      - name: Set version number
+        shell: pwsh
+        run: |
+          $content = Get-Content src/version.py -Raw
+          $versionBase = [regex]::Match($content, '__version_base__\s*=\s*"([^"]*)"').Groups[1].Value
+          $fullVersion = "$versionBase.${{ github.run_number }}"
+          Write-Host "Building version: $fullVersion"
+          $content = $content -replace '__version__ = "[^"]*"', "__version__ = `"$fullVersion`""
+          Set-Content src/version.py $content
+          Get-Content src/version.py
 
       - name: Install dependencies
         run: |
@@ -92,26 +111,28 @@ jobs:
           name: AlbumStudio-Windows
           path: artifacts/
 
-      - name: Generate release tag
-        id: tag
+      - name: Generate version
+        id: version
         run: |
-          echo "release_tag=build-$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-          echo "release_name=Build $(date +'%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
+          VERSION_BASE=$(grep -o '__version_base__\s*=\s*"[^"]*"' src/version.py | cut -d'"' -f2)
+          FULL_VERSION="${VERSION_BASE}.${{ github.run_number }}"
+          echo "version=$FULL_VERSION" >> $GITHUB_OUTPUT
+          echo "Release version: $FULL_VERSION"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tag.outputs.release_tag }}
-          name: ${{ steps.tag.outputs.release_name }}
+          tag_name: v${{ steps.version.outputs.version }}
+          name: Album Studio v${{ steps.version.outputs.version }}
           body: |
-            Automated build from main branch.
+            ## Album Studio v${{ steps.version.outputs.version }}
 
             **Commit:** ${{ github.sha }}
             **Message:** ${{ github.event.head_commit.message }}
 
-            ## Downloads
-            - **macOS:** AlbumStudio-macOS.dmg
-            - **Windows:** AlbumStudio-Windows.zip (extract and run AlbumStudio.exe)
+            ### Downloads
+            - **macOS:** `AlbumStudio-macOS.dmg` - Double-click to mount, drag to Applications
+            - **Windows:** `AlbumStudio-Windows.zip` - Extract and run `AlbumStudio.exe`
           files: |
             artifacts/AlbumStudio-macOS.dmg
             artifacts/AlbumStudio-Windows.zip
