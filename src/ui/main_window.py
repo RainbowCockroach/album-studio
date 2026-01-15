@@ -1,6 +1,6 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-                             QMessageBox, QApplication)
-from PyQt6.QtCore import Qt
+                             QMessageBox, QApplication, QProgressDialog)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from .widgets.toolbar_top import ProjectToolbar
 from .widgets.image_grid import ImageGrid
 from .widgets.toolbar_bottom import ToolbarBottom
@@ -10,6 +10,50 @@ from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
 from ..services.crop_service import CropService
 from ..services.image_similarity_service import ImageSimilarityService
+from ..services.update_service import UpdateService, ReleaseInfo
+from typing import Optional
+
+
+class UpdateCheckWorker(QThread):
+    """Background worker to check for updates."""
+    update_available = pyqtSignal(object)  # Emits ReleaseInfo or None
+    error = pyqtSignal(str)
+
+    def __init__(self, update_service: UpdateService):
+        super().__init__()
+        self.update_service = update_service
+
+    def run(self):
+        try:
+            release = self.update_service.check_for_updates()
+            self.update_available.emit(release)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class UpdateDownloadWorker(QThread):
+    """Background worker to download updates."""
+    progress = pyqtSignal(int, int)  # downloaded, total
+    finished = pyqtSignal(str)  # download_path
+    error = pyqtSignal(str)
+
+    def __init__(self, update_service: UpdateService, release: ReleaseInfo):
+        super().__init__()
+        self.update_service = update_service
+        self.release = release
+
+    def run(self):
+        try:
+            path = self.update_service.download_update(
+                self.release,
+                progress_callback=self.progress.emit
+            )
+            if path:
+                self.finished.emit(path)
+            else:
+                self.error.emit("Download failed")
+        except Exception as e:
+            self.error.emit(str(e))
 
 
 class MainWindow(QMainWindow):
@@ -24,8 +68,17 @@ class MainWindow(QMainWindow):
         self.current_project = None
         self.last_clicked_image = None  # Track last clicked image for similarity search
 
+        # Update service
+        self.update_service = UpdateService()
+        self._pending_release: Optional[ReleaseInfo] = None
+        self._update_check_worker: Optional[UpdateCheckWorker] = None
+        self._update_download_worker: Optional[UpdateDownloadWorker] = None
+
         self.init_ui()
         self.load_projects()
+
+        # Check for updates in background after UI is ready
+        self._check_for_updates()
 
     def init_ui(self):
         self.setWindowTitle("Album Studio - Image Sorting & Processing")
@@ -81,6 +134,7 @@ class MainWindow(QMainWindow):
         self.project_toolbar.add_photo_requested.connect(self.on_add_photo_requested)
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
+        self.project_toolbar.update_requested.connect(self.on_update_requested)
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
@@ -770,6 +824,151 @@ class MainWindow(QMainWindow):
                 "Rotation Failed",
                 f"Failed to rotate image: {self.last_clicked_image.file_path}"
             )
+
+    # ==================== Update Methods ====================
+
+    def _check_for_updates(self):
+        """Check for updates in background."""
+        self._update_check_worker = UpdateCheckWorker(self.update_service)
+        self._update_check_worker.update_available.connect(self._on_update_check_complete)
+        self._update_check_worker.error.connect(self._on_update_check_error)
+        self._update_check_worker.start()
+
+    def _on_update_check_complete(self, release: Optional[ReleaseInfo]):
+        """Handle update check completion."""
+        if release:
+            self._pending_release = release
+            self.project_toolbar.show_update_available(release.version)
+            print(f"[Update] New version available: {release.version}")
+        else:
+            print("[Update] Application is up to date")
+
+    def _on_update_check_error(self, error: str):
+        """Handle update check error (silently - don't bother user)."""
+        print(f"[Update] Check failed: {error}")
+
+    def on_update_requested(self):
+        """Handle update button click."""
+        if not self._pending_release:
+            return
+
+        release = self._pending_release
+
+        # Show confirmation dialog with release notes
+        reply = QMessageBox.question(
+            self,
+            f"Update to v{release.version}",
+            f"A new version of Album Studio is available!\n\n"
+            f"Current version: v{self.update_service.get_current_version()}\n"
+            f"New version: v{release.version}\n\n"
+            f"Release notes:\n{release.release_notes[:500]}{'...' if len(release.release_notes) > 500 else ''}\n\n"
+            f"The application will restart after the update.\n\n"
+            f"Download and install now?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Start download
+        self._start_update_download(release)
+
+    def _start_update_download(self, release: ReleaseInfo):
+        """Start downloading the update."""
+        self.project_toolbar.set_update_button_downloading()
+
+        # Create progress dialog
+        self._progress_dialog = QProgressDialog(
+            f"Downloading Album Studio v{release.version}...",
+            "Cancel",
+            0,
+            100,
+            self
+        )
+        self._progress_dialog.setWindowTitle("Downloading Update")
+        self._progress_dialog.setAutoClose(False)
+        self._progress_dialog.setAutoReset(False)
+        self._progress_dialog.canceled.connect(self._cancel_update_download)
+        self._progress_dialog.show()
+
+        # Start download worker
+        self._update_download_worker = UpdateDownloadWorker(self.update_service, release)
+        self._update_download_worker.progress.connect(self._on_download_progress)
+        self._update_download_worker.finished.connect(self._on_download_complete)
+        self._update_download_worker.error.connect(self._on_download_error)
+        self._update_download_worker.start()
+
+    def _on_download_progress(self, downloaded: int, total: int):
+        """Handle download progress update."""
+        if total > 0:
+            percent = int((downloaded / total) * 100)
+            self._progress_dialog.setValue(percent)
+            mb_downloaded = downloaded / (1024 * 1024)
+            mb_total = total / (1024 * 1024)
+            self._progress_dialog.setLabelText(
+                f"Downloading... {mb_downloaded:.1f} MB / {mb_total:.1f} MB"
+            )
+
+    def _on_download_complete(self, download_path: str):
+        """Handle download completion."""
+        self._progress_dialog.close()
+        self.project_toolbar.set_update_button_installing()
+
+        # Save current project before update
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
+
+        # Ask user to confirm restart
+        reply = QMessageBox.information(
+            self,
+            "Download Complete",
+            "Update downloaded successfully!\n\n"
+            "The application will now close and restart with the new version.\n\n"
+            "Click OK to continue.",
+            QMessageBox.StandardButton.Ok
+        )
+
+        # Install update (this will create a script and close the app)
+        if self.update_service.install_update(download_path):
+            # Close the application
+            QApplication.quit()
+        else:
+            QMessageBox.critical(
+                self,
+                "Update Failed",
+                "Failed to install the update.\n\n"
+                f"You can manually download the update from:\n"
+                f"{self.update_service.get_release_url()}"
+            )
+            self.project_toolbar.show_update_available(self._pending_release.version)
+
+    def _on_download_error(self, error: str):
+        """Handle download error."""
+        self._progress_dialog.close()
+
+        QMessageBox.critical(
+            self,
+            "Download Failed",
+            f"Failed to download update:\n{error}\n\n"
+            f"You can manually download from:\n"
+            f"{self.update_service.get_release_url()}"
+        )
+
+        # Reset update button
+        if self._pending_release:
+            self.project_toolbar.show_update_available(self._pending_release.version)
+
+    def _cancel_update_download(self):
+        """Handle download cancellation."""
+        if self._update_download_worker and self._update_download_worker.isRunning():
+            self._update_download_worker.terminate()
+            self._update_download_worker.wait()
+
+        # Reset update button
+        if self._pending_release:
+            self.project_toolbar.show_update_available(self._pending_release.version)
+
+    # ==================== End Update Methods ====================
 
     def closeEvent(self, event):
         """Handle window close event."""
