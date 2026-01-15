@@ -11,6 +11,8 @@ class ImageGrid(QWidget):
 
     image_clicked = pyqtSignal(object)  # Emits ImageItem
     image_double_clicked = pyqtSignal(object)  # Emits ImageItem
+    image_selected = pyqtSignal(object)  # Emits ImageItem when right-clicked for selection
+    image_preview_requested = pyqtSignal(str)  # Emits file path for right double-click
 
     def __init__(self, config):
         super().__init__()
@@ -22,6 +24,7 @@ class ImageGrid(QWidget):
         self.preview_mode = False
         self.selection_mode = False
         self.selected_items = set()
+        self.current_selected_item = None  # Single image selection via right-click
         self.init_ui()
 
     def init_ui(self):
@@ -54,6 +57,7 @@ class ImageGrid(QWidget):
         """Load images from current project into grid."""
         self.clear_grid()
         self.selected_items.clear()  # Clear selection on reload
+        self.current_selected_item = None  # Clear current selection
 
         if not self.current_project:
             return
@@ -66,7 +70,8 @@ class ImageGrid(QWidget):
             image_widget = ImageWidget(image_item, self.thumbnail_size)
             image_widget.clicked.connect(lambda item=image_item: self.on_image_clicked(item))
             image_widget.double_clicked.connect(lambda item=image_item: self.on_image_double_clicked(item))
-            image_widget.right_clicked.connect(self.on_image_right_clicked)
+            image_widget.right_clicked.connect(lambda item=image_item: self.on_image_right_clicked(item))
+            image_widget.right_double_clicked.connect(self.on_image_right_double_clicked)
 
             # Add to grid
             self.grid_layout.addWidget(image_widget, row, col)
@@ -93,7 +98,9 @@ class ImageGrid(QWidget):
         """Refresh the display of all images (update borders based on tags/selection)."""
         for image_item, widget in self.image_widgets.items():
             is_selected = image_item in self.selected_items
+            is_current = image_item == self.current_selected_item
             widget.set_selected(is_selected)
+            widget.set_current_selected(is_current)
             widget.update_border()
 
     def refresh_image(self, image_item):
@@ -135,11 +142,33 @@ class ImageGrid(QWidget):
         if not self.preview_mode and not self.selection_mode:
             self.image_double_clicked.emit(image_item)
 
-    def on_image_right_clicked(self, file_path: str):
-        """Handle right click on image - open image viewer dialog."""
-        from ..dialogs.image_viewer_dialog import ImageViewerDialog
-        dialog = ImageViewerDialog(file_path, self)
-        dialog.exec()
+    def on_image_right_clicked(self, image_item):
+        """Handle right click on image - select the image."""
+        # Clear previous selection
+        if self.current_selected_item and self.current_selected_item in self.image_widgets:
+            self.image_widgets[self.current_selected_item].set_current_selected(False)
+
+        # Set new selection
+        self.current_selected_item = image_item
+        if image_item in self.image_widgets:
+            self.image_widgets[image_item].set_current_selected(True)
+
+        # Emit signal for main window
+        self.image_selected.emit(image_item)
+
+    def on_image_right_double_clicked(self, file_path: str):
+        """Handle right double click on image - open image viewer dialog."""
+        self.image_preview_requested.emit(file_path)
+
+    def get_current_selected_item(self):
+        """Get the currently selected image (via right-click)."""
+        return self.current_selected_item
+
+    def clear_current_selection(self):
+        """Clear the current image selection."""
+        if self.current_selected_item and self.current_selected_item in self.image_widgets:
+            self.image_widgets[self.current_selected_item].set_current_selected(False)
+        self.current_selected_item = None
 
     def enter_preview_mode(self):
         """Enter crop preview mode for all fully tagged images."""
@@ -163,7 +192,8 @@ class ImageWidget(QFrame):
 
     clicked = pyqtSignal()
     double_clicked = pyqtSignal()
-    right_clicked = pyqtSignal(str)  # Emits file path for image viewer
+    right_clicked = pyqtSignal()  # Emits when right-clicked for selection
+    right_double_clicked = pyqtSignal(str)  # Emits file path for image viewer
 
     def __init__(self, image_item, thumbnail_size):
         super().__init__()
@@ -173,9 +203,15 @@ class ImageWidget(QFrame):
         self.click_timer.setSingleShot(True)
         self.click_timer.timeout.connect(self._handle_single_click)
         self.double_click_flag = False
+        # Right-click timer for distinguishing single vs double right-click
+        self.right_click_timer = QTimer()
+        self.right_click_timer.setSingleShot(True)
+        self.right_click_timer.timeout.connect(self._handle_single_right_click)
+        self.right_double_click_flag = False
         self.crop_overlay = None  # Will be created in preview mode
         self.in_preview_mode = False
-        self.is_selected = False
+        self.is_selected = False  # For batch delete selection mode
+        self.is_current_selected = False  # For single right-click selection
         self.init_ui()
 
     def init_ui(self):
@@ -216,8 +252,13 @@ class ImageWidget(QFrame):
         self.update_border()
 
     def set_selected(self, selected: bool):
-        """Set visual selection state."""
+        """Set visual selection state for batch delete mode."""
         self.is_selected = selected
+        self.update_border()
+
+    def set_current_selected(self, selected: bool):
+        """Set visual current selection state (right-click selection)."""
+        self.is_current_selected = selected
         self.update_border()
 
     def refresh_thumbnail(self):
@@ -236,19 +277,25 @@ class ImageWidget(QFrame):
             self.tag_label.setText("Selected for Deletion")
             return
 
+        # Determine background color based on current selection
+        bg_style = "background-color: #e6f0ff;" if self.is_current_selected else ""
+
         if self.image_item.is_fully_tagged():
             # Green border for fully tagged
-            self.setStyleSheet("QFrame { border: 3px solid green; }")
+            border_color = "#0066cc" if self.is_current_selected else "green"
+            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
             tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}"
             self.tag_label.setText(tag_text)
         elif self.image_item.has_tags():
-            # Yellow border for partially tagged
-            self.setStyleSheet("QFrame { border: 3px solid orange; }")
+            # Yellow/orange border for partially tagged
+            border_color = "#0066cc" if self.is_current_selected else "orange"
+            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
             tag_text = f"{self.image_item.album_tag or ''}\n{self.image_item.size_tag or ''}"
             self.tag_label.setText(tag_text)
         else:
             # Default border for untagged
-            self.setStyleSheet("QFrame { border: 3px solid lightgray; }")
+            border_color = "#0066cc" if self.is_current_selected else "lightgray"
+            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
             self.tag_label.setText("No tags")
 
     def _handle_single_click(self):
@@ -259,22 +306,31 @@ class ImageWidget(QFrame):
             return
         self.clicked.emit()
 
+    def _handle_single_right_click(self):
+        """Handle single right click after delay (if not double-clicked)."""
+        if self.right_double_click_flag:
+            # Reset flag and ignore this single right click
+            self.right_double_click_flag = False
+            return
+        self.right_clicked.emit()
+
     def mousePressEvent(self, a0):
         """Handle mouse press events."""
         if a0:
             if a0.button() == Qt.MouseButton.LeftButton:
                 self.click_pos = a0.pos()
             elif a0.button() == Qt.MouseButton.RightButton:
-                # Emit signal to open image viewer
-                self.right_clicked.emit(self.image_item.file_path)
+                self.right_click_pos = a0.pos()
 
     def mouseReleaseEvent(self, a0):
         """Handle mouse release events."""
         if a0:
+            # Use system's double-click interval
+            interval = QApplication.doubleClickInterval()
             if a0.button() == Qt.MouseButton.LeftButton:
-                # Use system's double-click interval
-                interval = QApplication.doubleClickInterval()
                 self.click_timer.start(interval + 50)  # Add 50ms buffer
+            elif a0.button() == Qt.MouseButton.RightButton:
+                self.right_click_timer.start(interval + 50)
 
     def mouseDoubleClickEvent(self, a0):
         """Handle double click events."""
@@ -286,6 +342,13 @@ class ImageWidget(QFrame):
                 self.double_click_flag = True
                 # Emit double click signal
                 self.double_clicked.emit()
+            elif a0.button() == Qt.MouseButton.RightButton:
+                # Stop any pending single right click timers
+                self.right_click_timer.stop()
+                # Set flag to ignore next single right click
+                self.right_double_click_flag = True
+                # Emit right double click signal with file path
+                self.right_double_clicked.emit(self.image_item.file_path)
 
     def enter_preview_mode(self, config):
         """Enter crop preview mode - show crop overlay."""

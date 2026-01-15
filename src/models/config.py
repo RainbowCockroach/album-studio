@@ -255,6 +255,32 @@ class Config:
 
         return comparison_dir
 
+    # ========== Size Cost Management ==========
+
+    def get_size_cost(self, size_ratio: str) -> float:
+        """Get the cost for a specific size. Returns 0 if not set."""
+        costs = self.settings.get("size_costs", {})
+        return costs.get(size_ratio, 0)
+
+    def set_size_cost(self, size_ratio: str, cost: float):
+        """Set the cost for a specific size."""
+        if "size_costs" not in self.settings:
+            self.settings["size_costs"] = {}
+        self.settings["size_costs"][size_ratio] = cost
+
+    def get_all_size_costs(self) -> Dict[str, float]:
+        """Get all size costs as a dictionary."""
+        return self.settings.get("size_costs", {})
+
+    def get_all_unique_sizes(self) -> List[str]:
+        """Get all unique size ratios from all size groups."""
+        unique_sizes = set()
+        for group_data in self.size_groups.values():
+            if isinstance(group_data, dict) and "sizes" in group_data:
+                for size in group_data["sizes"]:
+                    unique_sizes.add(size["ratio"])
+        return sorted(unique_sizes)
+
     @staticmethod
     def _get_default_settings() -> dict:
         """Get default settings if settings.json doesn't exist."""
@@ -266,5 +292,6 @@ class Config:
             "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
-            "comparison_directory": ""  # Empty means use {workspace}/printed
+            "comparison_directory": "",  # Empty means use {workspace}/printed
+            "size_costs": {}  # Maps size ratio (e.g., "5x7") to cost (number)
         }

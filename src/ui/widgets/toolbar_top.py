@@ -42,6 +42,11 @@ class ProjectToolbar(QWidget):
         self.archive_project_btn.clicked.connect(self.on_archive_project_clicked)
         layout.addWidget(self.archive_project_btn)
 
+        # Total cost display
+        self.total_cost_label = QLabel("Total: 0")
+        self.total_cost_label.setStyleSheet("font-weight: bold; padding: 0 10px;")
+        layout.addWidget(self.total_cost_label)
+
         # ***************** Spacer *****************
         layout.addStretch()
         # ***************** Spacer *****************
@@ -122,6 +127,10 @@ class ProjectToolbar(QWidget):
         project_name = self.get_current_project()
         if project_name:
             self.archive_requested.emit(project_name)
+
+    def set_total_cost(self, cost: float):
+        """Update the total cost display."""
+        self.total_cost_label.setText(f"Total: {cost:.2f}")
 
 
 class NewProjectDialog(QDialog):

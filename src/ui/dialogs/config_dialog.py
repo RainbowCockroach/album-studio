@@ -2,7 +2,8 @@ import copy
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
-    QFileDialog, QGroupBox
+    QFileDialog, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
+    QDoubleSpinBox
 )
 from PyQt6.QtCore import Qt
 
@@ -38,6 +39,10 @@ class ConfigDialog(QDialog):
         # Add workspace directory section at the top
         workspace_section = self.create_workspace_section()
         main_layout.addWidget(workspace_section)
+
+        # Add size costs section
+        size_costs_section = self.create_size_costs_section()
+        main_layout.addWidget(size_costs_section)
 
         # Create splitter for two-panel layout
         splitter = QSplitter(Qt.Orientation.Horizontal)
@@ -146,6 +151,59 @@ class ConfigDialog(QDialog):
         )
         if folder:
             self.comparison_input.setText(folder)
+
+    def create_size_costs_section(self):
+        """Create size costs configuration section."""
+        group_box = QGroupBox("Size Costs")
+        layout = QVBoxLayout()
+
+        # Info label
+        info_label = QLabel("Set the cost for each print size (used to calculate total cost):")
+        info_label.setStyleSheet("color: #666;")
+        layout.addWidget(info_label)
+
+        # Table for size costs
+        self.costs_table = QTableWidget()
+        self.costs_table.setColumnCount(2)
+        self.costs_table.setHorizontalHeaderLabels(["Size", "Cost"])
+        self.costs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+        self.costs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
+        self.costs_table.setColumnWidth(1, 100)
+        self.costs_table.setMaximumHeight(150)
+        self.costs_table.verticalHeader().setVisible(False)
+
+        layout.addWidget(self.costs_table)
+
+        # Load initial costs
+        self.load_size_costs()
+
+        group_box.setLayout(layout)
+        return group_box
+
+    def load_size_costs(self):
+        """Load size costs into the table."""
+        # Get all unique sizes from all groups
+        unique_sizes = self.config.get_all_unique_sizes()
+
+        # Get current costs
+        current_costs = self.config.get_all_size_costs()
+
+        self.costs_table.setRowCount(len(unique_sizes))
+        self.cost_spinboxes = {}
+
+        for row, size_ratio in enumerate(unique_sizes):
+            # Size label (read-only)
+            size_item = QTableWidgetItem(size_ratio)
+            size_item.setFlags(size_item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+            self.costs_table.setItem(row, 0, size_item)
+
+            # Cost spinbox
+            cost_spinbox = QDoubleSpinBox()
+            cost_spinbox.setRange(0, 999999)
+            cost_spinbox.setDecimals(2)
+            cost_spinbox.setValue(current_costs.get(size_ratio, 0))
+            self.costs_table.setCellWidget(row, 1, cost_spinbox)
+            self.cost_spinboxes[size_ratio] = cost_spinbox
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -450,6 +508,10 @@ class ConfigDialog(QDialog):
         # Save comparison directory setting
         comparison_dir = self.comparison_input.text().strip()
         self.config.set_setting("comparison_directory", comparison_dir)
+
+        # Save size costs
+        for size_ratio, spinbox in self.cost_spinboxes.items():
+            self.config.set_size_cost(size_ratio, spinbox.value())
 
         self.config.save_settings()
 

@@ -61,8 +61,9 @@ The typical user workflow is:
 4. **Preview Crops** (optional): Click "Preview & Adjust Crops" to see and adjust crop positions before final cropping
 5. **Crop Images**: Click "Crop All Tagged Images" to batch process all tagged images
 6. **Find Similar**: Select an image, click "Find similar" to search for visually similar images using AI
-7. **Archive** (when done): Creates thumbnails → `workspace/printed/`, zips output, deletes project folders
-8. **Configure Size Groups** (as needed): Click "Configure Size Groups" to add/remove/rename size groups and their sizes
+7. **Rotate Images** (as needed): Select an image, click "Rotate" to rotate 90° clockwise
+8. **Archive** (when done): Creates thumbnails → `workspace/printed/`, zips output, deletes project folders
+9. **Configure Size Groups** (as needed): Click "Configure Size Groups" to add/remove/rename size groups and their sizes
 
 ## Architecture
 
@@ -86,12 +87,14 @@ The codebase follows a clean separation of concerns:
 **UI** (`src/ui/`):
 
 - `MainWindow`: Orchestrates the three main UI sections
-- `widgets/ProjectToolbar`: Top bar with project dropdown + action buttons
-- `widgets/ImageGrid`: Center grid displaying image thumbnails with preview mode support
-- `widgets/TagPanel`: Bottom bar with size_group/size dropdowns + action buttons
-- `widgets/CropOverlay`: Draggable crop rectangle overlay for preview mode
+- `widgets/toolbar_top.py` (`ProjectToolbar`): Top bar with project dropdown + action buttons
+- `widgets/image_grid.py` (`ImageGrid`): Center grid displaying image thumbnails with preview mode support
+- `widgets/toolbar_bottom.py` (`ToolbarBottom`): Bottom bar with size_group/size dropdowns + action buttons
+- `widgets/detail_panel.py` (`DetailPanel`): Left sidebar showing EXIF info and image details
+- `widgets/crop_overlay.py` (`CropOverlay`): Draggable crop rectangle overlay for preview mode
 - `dialogs/ConfigDialog`: GUI for managing size groups, workspace, and comparison directories
 - `dialogs/FindSimilarDialog`: UI for similarity search with adjustable threshold and result count
+- `dialogs/ImageViewerDialog`: Full-size image viewer dialog
 
 ### Signal/Slot Architecture
 
@@ -103,17 +106,24 @@ ProjectToolbar
   ├─ new_project_created(name) → MainWindow.on_new_project()
   ├─ archive_requested(name) → MainWindow.on_archive_requested()
   ├─ add_photo_requested() → MainWindow.on_add_photo_requested()
+  ├─ delete_mode_toggled(bool) → MainWindow.on_delete_mode_toggled()
   └─ delete_confirmed() → MainWindow.on_delete_confirmed()
 
 ImageGrid
   ├─ image_clicked(ImageItem) → MainWindow.on_image_clicked()  # Apply tags
-  └─ image_double_clicked(ImageItem) → MainWindow.on_image_double_clicked()  # Clear tags
+  ├─ image_double_clicked(ImageItem) → MainWindow.on_image_double_clicked()  # Clear tags
+  ├─ image_selected(ImageItem) → MainWindow.on_image_selected()  # Right-click select
+  └─ image_preview_requested(path) → MainWindow.on_image_preview_requested()  # View full size
 
-TagPanel
+ToolbarBottom
   ├─ crop_requested() → MainWindow.on_crop_requested()
+  ├─ save_requested() → MainWindow.on_save_requested()
+  ├─ cancel_requested() → MainWindow.on_cancel_requested()
   ├─ refresh_requested() → MainWindow.on_refresh_requested()
   ├─ config_requested() → MainWindow.on_config_requested()
-  └─ find_similar_requested() → MainWindow.on_find_similar_requested()
+  ├─ detail_toggled(bool) → DetailPanel.setVisible()
+  ├─ find_similar_requested() → MainWindow.on_find_similar_requested()
+  └─ rotate_requested() → MainWindow.on_rotate_requested()
 
 DetailPanel
   └─ rename_requested(ImageItem) → MainWindow.on_rename_requested()
@@ -159,7 +169,7 @@ All widget-to-widget communication goes through MainWindow - widgets never talk 
 2. User clicks "Find similar" button
 3. `ImageSimilarityService` lazy-loads ResNet50 model
 4. Loads images from comparison directory (default: `{workspace}/printed/`)
-5. Extracts 2048-dim feature vectors (cached in `.cache/feature_cache.json`)
+5. Extracts 2048-dim feature vectors (cached in `.cache/feature_cache.npz`)
 6. Computes cosine similarity between target and all candidates
 7. Returns top matches above threshold, sorted by similarity
 8. `FindSimilarDialog` displays results with similarity percentages

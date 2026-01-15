@@ -98,6 +98,8 @@ class MainWindow(QMainWindow):
         # Image grid
         self.image_grid.image_clicked.connect(self.on_image_clicked)
         self.image_grid.image_double_clicked.connect(self.on_image_double_clicked)
+        self.image_grid.image_selected.connect(self.on_image_selected)
+        self.image_grid.image_preview_requested.connect(self.on_image_preview_requested)
 
     def load_projects(self):
         """Load all projects from disk."""
@@ -108,6 +110,9 @@ class MainWindow(QMainWindow):
         # Load first project if available
         if project_names:
             self.load_project(project_names[0])
+        else:
+            # No project loaded, reset cost to 0
+            self.update_total_cost()
 
     def load_project(self, project_name: str):
         """Load a specific project."""
@@ -130,6 +135,9 @@ class MainWindow(QMainWindow):
 
         # Enable tag panel
         self.tag_panel.set_enabled(True)
+
+        # Update total cost display
+        self.update_total_cost()
 
         print(f"Loaded project: {project_name} with {len(project.images)} images")
 
@@ -390,13 +398,16 @@ class MainWindow(QMainWindow):
 
         # Save project
         self.project_manager.save_project(self.current_project)
-        
+
         # Refresh grid
         self.image_grid.set_project(self.current_project)
-        
+
+        # Update total cost
+        self.update_total_cost()
+
         # Exit delete mode
         self.project_toolbar.toggle_delete_mode(False)
-        
+
         QMessageBox.information(self, "Deletion Complete", f"Deleted {deleted_count} photos.")
 
     def on_image_clicked(self, image_item):
@@ -420,6 +431,9 @@ class MainWindow(QMainWindow):
         # Save project
         self.project_manager.save_project(self.current_project)
 
+        # Update total cost
+        self.update_total_cost()
+
         # Update detail panel if visible
         if self.detail_panel.isVisible():
             self.update_detail_panel(image_item)
@@ -429,9 +443,21 @@ class MainWindow(QMainWindow):
         if not image_item:
             self.detail_panel.clear()
             return
-            
+
         info = ImageProcessor.get_exif_info(image_item.file_path)
         self.detail_panel.set_data(info, image_item)
+
+    def update_total_cost(self):
+        """Calculate and update the total cost display based on tagged images."""
+        total_cost = 0.0
+
+        if self.current_project:
+            for image in self.current_project.images:
+                if image.size_tag:
+                    cost = self.config.get_size_cost(image.size_tag)
+                    total_cost += cost
+
+        self.project_toolbar.set_total_cost(total_cost)
 
     def on_image_double_clicked(self, image_item):
         """Handle double click on image - clear tags."""
@@ -442,6 +468,24 @@ class MainWindow(QMainWindow):
 
         # Save project
         self.project_manager.save_project(self.current_project)
+
+        # Update total cost
+        self.update_total_cost()
+
+    def on_image_selected(self, image_item):
+        """Handle right click on image - select the image."""
+        # Update last clicked image for similarity search
+        self.last_clicked_image = image_item
+
+        # Update detail panel with the selected image info
+        info = ImageProcessor.get_exif_info(image_item.file_path)
+        self.detail_panel.set_data(info, image_item)
+
+    def on_image_preview_requested(self, file_path: str):
+        """Handle right double click on image - open image viewer dialog."""
+        from .dialogs.image_viewer_dialog import ImageViewerDialog
+        dialog = ImageViewerDialog(file_path, self)
+        dialog.exec()
 
     def on_rename_requested(self, image_item):
         """Handle rename request from detail panel."""
@@ -642,6 +686,9 @@ class MainWindow(QMainWindow):
             # Refresh the current project to update display if needed
             if self.current_project:
                 self.image_grid.set_project(self.current_project)
+
+            # Update total cost (costs may have changed)
+            self.update_total_cost()
 
     def on_find_similar_requested(self):
         """Handle find similar button click - open similarity dialog."""

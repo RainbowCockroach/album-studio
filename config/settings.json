@@ -15,5 +15,12 @@
     ".PNG",
     ".HEIC"
   ],
-  "comparison_directory": "/Users/vv/STUDIO/album-studio-test/printed"
+  "comparison_directory": "/Users/vv/STUDIO/album-studio-test/printed",
+  "size_costs": {
+    "11x14": 12.0,
+    "5x7": 0.0,
+    "8x10": 0.0,
+    "9x10": 0.0,
+    "9x6": 10.0
+  }
 }
