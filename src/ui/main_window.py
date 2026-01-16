@@ -141,12 +141,12 @@ class MainWindow(QMainWindow):
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
+        self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
         self.tag_panel.save_requested.connect(self.on_save_requested)
         self.tag_panel.cancel_requested.connect(self.on_cancel_requested)
-        self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
         self.tag_panel.config_requested.connect(self.on_config_requested)
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)

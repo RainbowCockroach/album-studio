@@ -12,6 +12,7 @@ class ProjectToolbar(QWidget):
     project_changed = pyqtSignal(str)  # Emits project name
     new_project_created = pyqtSignal(str)  # Emits project name only
     archive_requested = pyqtSignal(str)  # Emits project name to archive
+    refresh_requested = pyqtSignal()
     add_photo_requested = pyqtSignal()
     delete_mode_toggled = pyqtSignal(bool)
     delete_confirmed = pyqtSignal()
@@ -37,6 +38,11 @@ class ProjectToolbar(QWidget):
         self.project_combo.currentTextChanged.connect(self.on_project_changed)
         layout.addWidget(self.project_combo)
 
+        # Refresh button
+        self.refresh_btn = QPushButton("Reload project")
+        self.refresh_btn.clicked.connect(self.on_refresh_clicked)
+        layout.addWidget(self.refresh_btn)
+
         # New project button
         self.new_project_btn = QPushButton("New Project")
         self.new_project_btn.clicked.connect(self.on_new_project_clicked)
@@ -47,14 +53,14 @@ class ProjectToolbar(QWidget):
         self.archive_project_btn.clicked.connect(self.on_archive_project_clicked)
         layout.addWidget(self.archive_project_btn)
 
+        # ***************** Spacer *****************
+        layout.addStretch()
+        # ***************** Spacer *****************
+
         # Total cost display
         self.total_cost_label = QLabel("Total: 0")
         self.total_cost_label.setStyleSheet("font-weight: bold; padding: 0 10px;")
         layout.addWidget(self.total_cost_label)
-
-        # ***************** Spacer *****************
-        layout.addStretch()
-        # ***************** Spacer *****************
 
         # Add Photo button
         self.add_photo_btn = QPushButton("Add Photo")
@@ -104,6 +110,7 @@ class ProjectToolbar(QWidget):
 
         self.new_project_btn.setVisible(not enabled)
         self.archive_project_btn.setVisible(not enabled)
+        self.refresh_btn.setVisible(not enabled)
         self.project_combo.setEnabled(not enabled)
         self.add_photo_btn.setVisible(not enabled)
         self.delete_photo_btn.setVisible(not enabled)
@@ -148,6 +155,10 @@ class ProjectToolbar(QWidget):
         project_name = self.get_current_project()
         if project_name:
             self.archive_requested.emit(project_name)
+
+    def on_refresh_clicked(self):
+        """Handle refresh button click."""
+        self.refresh_requested.emit()
 
     def set_total_cost(self, cost: float):
         """Update the total cost display."""
