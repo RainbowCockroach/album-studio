@@ -11,6 +11,7 @@ from ..services.image_processor import ImageProcessor
 from ..services.crop_service import CropService
 from ..services.image_similarity_service import ImageSimilarityService
 from ..services.update_service import UpdateService, ReleaseInfo
+from ..utils.paths import migrate_old_data, get_user_data_dir
 from typing import Optional
 
 
@@ -61,6 +62,11 @@ class MainWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
+
+        # Migrate old data from app bundle to user directory (if needed)
+        # This ensures data persists across app updates
+        migrate_old_data()
+
         self.config = Config()
         self.project_manager = ProjectManager()
         self.crop_service = CropService(self.config)

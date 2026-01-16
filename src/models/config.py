@@ -1,14 +1,20 @@
 import json
 import os
 import re
+import shutil
 from typing import Dict, List
+from ..utils.paths import get_config_dir, get_user_config_dir
 
 
 class Config:
     """Global configuration manager for albums, sizes, and settings."""
 
-    def __init__(self, config_dir: str = "config"):
-        self.config_dir = config_dir
+    def __init__(self, config_dir: str = None):
+        # Bundled config directory (ships with app, read-only)
+        self.bundled_config_dir = config_dir if config_dir else get_config_dir()
+        # User config directory (for modifications, persists across updates)
+        self.user_config_dir = get_user_config_dir()
+
         self.size_groups: Dict[str, dict] = {}  # Changed from List[str] to dict
         self.sizes: Dict[str, dict] = {}  # Deprecated, kept for backward compatibility
         self.settings: dict = {}
@@ -22,14 +28,19 @@ class Config:
 
     def load_size_groups(self):
         """Load size group definitions from size_group.json with migration support."""
-        size_group_path = os.path.join(self.config_dir, "size_group.json")
+        # Check user config first, then fall back to bundled config
+        user_path = os.path.join(self.user_config_dir, "size_group.json")
+        bundled_path = os.path.join(self.bundled_config_dir, "size_group.json")
+
+        size_group_path = user_path if os.path.exists(user_path) else bundled_path
+
         try:
             with open(size_group_path, 'r') as f:
                 data = json.load(f)
                 # Migrate old format to new format
                 self.size_groups = self._migrate_size_group_data(data)
         except FileNotFoundError:
-            print(f"Warning: {size_group_path} not found. Using empty size groups.")
+            print(f"Warning: size_group.json not found. Using empty size groups.")
             self.size_groups = {}
         except json.JSONDecodeError as e:
             print(f"Error loading size_group.json: {e}")
@@ -37,12 +48,17 @@ class Config:
 
     def load_sizes(self):
         """Load size definitions from sizes.json."""
-        sizes_path = os.path.join(self.config_dir, "sizes.json")
+        # Check user config first, then fall back to bundled config
+        user_path = os.path.join(self.user_config_dir, "sizes.json")
+        bundled_path = os.path.join(self.bundled_config_dir, "sizes.json")
+
+        sizes_path = user_path if os.path.exists(user_path) else bundled_path
+
         try:
             with open(sizes_path, 'r') as f:
                 self.sizes = json.load(f)
         except FileNotFoundError:
-            print(f"Warning: {sizes_path} not found. Using empty sizes.")
+            print(f"Warning: sizes.json not found. Using empty sizes.")
             self.sizes = {}
         except json.JSONDecodeError as e:
             print(f"Error loading sizes.json: {e}")
@@ -50,22 +66,27 @@ class Config:
 
     def load_settings(self):
         """Load user settings from settings.json."""
-        settings_path = os.path.join(self.config_dir, "settings.json")
+        # Check user config first, then fall back to bundled config
+        user_path = os.path.join(self.user_config_dir, "settings.json")
+        bundled_path = os.path.join(self.bundled_config_dir, "settings.json")
+
+        settings_path = user_path if os.path.exists(user_path) else bundled_path
+
         try:
             with open(settings_path, 'r') as f:
                 self.settings = json.load(f)
         except FileNotFoundError:
-            print(f"Warning: {settings_path} not found. Using default settings.")
+            print(f"Warning: settings.json not found. Using default settings.")
             self.settings = self._get_default_settings()
         except json.JSONDecodeError as e:
             print(f"Error loading settings.json: {e}")
             self.settings = self._get_default_settings()
 
     def save_settings(self):
-        """Save current settings to settings.json."""
-        settings_path = os.path.join(self.config_dir, "settings.json")
+        """Save current settings to user config directory (persists across updates)."""
+        settings_path = os.path.join(self.user_config_dir, "settings.json")
         try:
-            os.makedirs(self.config_dir, exist_ok=True)
+            os.makedirs(self.user_config_dir, exist_ok=True)
             with open(settings_path, 'w') as f:
                 json.dump(self.settings, f, indent=2)
         except Exception as e:
@@ -142,10 +163,10 @@ class Config:
         return size_ratio  # Default to ratio if not found
 
     def save_size_groups(self):
-        """Save size_groups back to config/size_group.json."""
-        size_group_path = os.path.join(self.config_dir, "size_group.json")
+        """Save size_groups to user config directory (persists across updates)."""
+        size_group_path = os.path.join(self.user_config_dir, "size_group.json")
         try:
-            os.makedirs(self.config_dir, exist_ok=True)
+            os.makedirs(self.user_config_dir, exist_ok=True)
             with open(size_group_path, 'w') as f:
                 json.dump(self.size_groups, f, indent=2)
         except Exception as e:
