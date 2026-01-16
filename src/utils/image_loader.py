@@ -1,5 +1,6 @@
 import os
-from PIL import Image, ImageQt
+from typing import Optional
+from PIL import Image
 from PyQt6.QtGui import QPixmap, QImage, QImageReader
 from PyQt6.QtCore import Qt, QSize
 import pillow_heif
@@ -11,7 +12,7 @@ class ImageLoader:
     """Utility class for robust image loading, supporting HEIC and other formats."""
 
     @staticmethod
-    def load_pixmap(file_path: str, max_size: int = None) -> QPixmap:
+    def load_pixmap(file_path: str, max_size: Optional[int] = None) -> QPixmap:
         """
         Load a QPixmap from a file path, supporting HEIC via Pillow.
         Uses QImageReader for efficient JPEG DCT scaling when possible.
@@ -35,28 +36,26 @@ class ImageLoader:
             try:
                 reader = QImageReader(file_path)
 
-                # Check if the format supports scaled reading
-                if reader.supportsOption(QImageReader.ImageOption.ScaledSize):
-                    # Get original size
-                    original_size = reader.size()
-                    if original_size.isValid():
-                        # Calculate scaled size maintaining aspect ratio
-                        scaled_size = original_size.scaled(
-                            QSize(max_size, max_size),
-                            Qt.AspectRatioMode.KeepAspectRatio
-                        )
+                # Get original size
+                original_size = reader.size()
+                if original_size.isValid():
+                    # Calculate scaled size maintaining aspect ratio
+                    scaled_size = original_size.scaled(
+                        QSize(max_size, max_size),
+                        Qt.AspectRatioMode.KeepAspectRatio
+                    )
 
-                        # Set the scaled size BEFORE reading for efficient decoding
-                        reader.setScaledSize(scaled_size)
+                    # Set the scaled size BEFORE reading for efficient decoding
+                    reader.setScaledSize(scaled_size)
 
-                        # Set quality for good balance (75 = floating point DCT + bilinear)
-                        reader.setQuality(75)
+                    # Set quality for good balance (75 = floating point DCT + bilinear)
+                    reader.setQuality(75)
 
-                        # Read the image at scaled size (uses JPEG DCT partial decoding)
-                        image = reader.read()
+                    # Read the image at scaled size (uses JPEG DCT partial decoding)
+                    image = reader.read()
 
-                        if not image.isNull():
-                            return QPixmap.fromImage(image)
+                    if not image.isNull():
+                        return QPixmap.fromImage(image)
             except Exception as e:
                 print(f"Error using QImageReader for JPEG: {file_path} - {e}")
                 # Fall through to standard loading

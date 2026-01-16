@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
                              QVBoxLayout, QFrame, QApplication)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
-from PyQt6.QtGui import QPixmap, QPalette, QColor
+from PyQt6.QtGui import QPixmap, QColor
 from .crop_overlay import CropOverlay
 from src.utils.image_loader import ImageLoader
 
@@ -228,7 +228,7 @@ class ImageGrid(QWidget):
     def exit_preview_mode(self):
         """Exit crop preview mode."""
         self.preview_mode = False
-        for image_item, widget in self.image_widgets.items():
+        for _, widget in self.image_widgets.items():
             widget.exit_preview_mode()
 
 

@@ -11,7 +11,7 @@ import platform
 import subprocess
 from urllib.request import urlopen, Request
 from urllib.error import URLError, HTTPError
-from typing import Optional, Tuple, Callable
+from typing import Optional, Callable
 from dataclasses import dataclass
 
 from ..version import __version__, GITHUB_OWNER, GITHUB_REPO
@@ -316,7 +316,6 @@ rm -f "$0"
 
     def _install_windows(self, zip_path: str) -> bool:
         """Install update on Windows."""
-        import zipfile
 
         # Get current app location
         if getattr(sys, 'frozen', False):
@@ -364,7 +363,7 @@ del "%~f0"
             ["cmd", "/c", script_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
         )
 
         print(f"[UpdateService] Update script launched: {script_path}")

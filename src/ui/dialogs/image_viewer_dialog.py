@@ -1,4 +1,5 @@
 """Dialog for viewing an image in detail with zoom support."""
+from typing import Optional
 from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QScrollArea, QApplication
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap, QWheelEvent, QMouseEvent, QKeyEvent
@@ -21,7 +22,7 @@ class ZoomableImageLabel(QLabel):
         self.pan_start = QPoint()
         self.setCursor(Qt.CursorShape.OpenHandCursor)
 
-    def set_image(self, pixmap: QPixmap, initial_zoom: float = None):
+    def set_image(self, pixmap: QPixmap, initial_zoom: Optional[float] = None):
         """Set the image to display."""
         self.original_pixmap = pixmap
         if initial_zoom is not None:
@@ -44,36 +45,37 @@ class ZoomableImageLabel(QLabel):
             self.setPixmap(scaled_pixmap)
             self.adjustSize()
 
-    def wheelEvent(self, event: QWheelEvent):
+    def wheelEvent(self, event: Optional[QWheelEvent]):
         """Handle mouse wheel for zooming."""
-        if event.angleDelta().y() > 0:
-            # Zoom in
-            self.zoom_factor = min(self.zoom_factor * 1.15, self.max_zoom)
-        else:
-            # Zoom out
-            self.zoom_factor = max(self.zoom_factor / 1.15, self.min_zoom)
+        if event:
+            if event.angleDelta().y() > 0:
+                # Zoom in
+                self.zoom_factor = min(self.zoom_factor * 1.15, self.max_zoom)
+            else:
+                # Zoom out
+                self.zoom_factor = max(self.zoom_factor / 1.15, self.min_zoom)
 
-        self.update_display()
-        event.accept()
+            self.update_display()
+            event.accept()
 
-    def mousePressEvent(self, event: QMouseEvent):
+    def mousePressEvent(self, event: Optional[QMouseEvent]):
         """Start panning on mouse press."""
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event and event.button() == Qt.MouseButton.LeftButton:
             self.panning = True
             self.pan_start = event.pos()
             self.setCursor(Qt.CursorShape.ClosedHandCursor)
         super().mousePressEvent(event)
 
-    def mouseReleaseEvent(self, event: QMouseEvent):
+    def mouseReleaseEvent(self, event: Optional[QMouseEvent]):
         """Stop panning on mouse release."""
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event and event.button() == Qt.MouseButton.LeftButton:
             self.panning = False
             self.setCursor(Qt.CursorShape.OpenHandCursor)
         super().mouseReleaseEvent(event)
 
-    def mouseMoveEvent(self, event: QMouseEvent):
+    def mouseMoveEvent(self, event: Optional[QMouseEvent]):
         """Handle panning when dragging."""
-        if self.panning:
+        if event and self.panning:
             delta = event.pos() - self.pan_start
             self.pan_start = event.pos()
 
@@ -95,8 +97,10 @@ class ZoomableImageLabel(QLabel):
             if isinstance(scroll_area, QScrollArea):
                 h_bar = scroll_area.horizontalScrollBar()
                 v_bar = scroll_area.verticalScrollBar()
-                h_bar.setValue(h_bar.value() - delta.x())
-                v_bar.setValue(v_bar.value() - delta.y())
+                if h_bar:
+                    h_bar.setValue(h_bar.value() - delta.x())
+                if v_bar:
+                    v_bar.setValue(v_bar.value() - delta.y())
 
         super().mouseMoveEvent(event)
 
@@ -122,14 +126,16 @@ class ImageViewerDialog(QDialog):
         self.load_image()
 
         # Size to 90% of screen
-        screen = QApplication.primaryScreen().geometry()
-        self.resize(int(screen.width() * 0.9), int(screen.height() * 0.9))
+        primary_screen = QApplication.primaryScreen()
+        if primary_screen:
+            screen = primary_screen.geometry()
+            self.resize(int(screen.width() * 0.9), int(screen.height() * 0.9))
 
-        # Center on screen
-        self.move(
-            (screen.width() - self.width()) // 2,
-            (screen.height() - self.height()) // 2
-        )
+            # Center on screen
+            self.move(
+                (screen.width() - self.width()) // 2,
+                (screen.height() - self.height()) // 2
+            )
 
     def init_ui(self):
         layout = QVBoxLayout()
@@ -181,17 +187,17 @@ class ImageViewerDialog(QDialog):
 
             self.image_label.set_image(pixmap, initial_zoom)
 
-    def keyPressEvent(self, event: QKeyEvent):
+    def keyPressEvent(self, event: Optional[QKeyEvent]):
         """Close dialog on ESC key."""
-        if event.key() == Qt.Key.Key_Escape:
+        if event and event.key() == Qt.Key.Key_Escape:
             self.close()
         else:
             super().keyPressEvent(event)
 
-    def mousePressEvent(self, event: QMouseEvent):
+    def mousePressEvent(self, event: Optional[QMouseEvent]):
         """Close dialog when clicking outside the image area."""
         # Check if click is on the dialog background (not on the scroll area content)
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event and event.button() == Qt.MouseButton.LeftButton:
             # Get the scroll area geometry in dialog coordinates
             scroll_rect = self.scroll_area.geometry()
             click_pos = event.pos()

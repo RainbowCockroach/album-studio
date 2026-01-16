@@ -11,7 +11,7 @@ from ..services.image_processor import ImageProcessor
 from ..services.crop_service import CropService, CropWorker
 from ..services.image_similarity_service import ImageSimilarityService
 from ..services.update_service import UpdateService, ReleaseInfo
-from ..utils.paths import migrate_old_data, get_user_data_dir
+from ..utils.paths import migrate_old_data
 from typing import Optional
 
 
@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         self.current_project = project
 
         # Load images from folder
-        supported_formats = self.config.get_setting("supported_formats", [])
+        supported_formats = self.config.get_setting("supported_formats", []) or []
         project.load_images(supported_formats)
 
         # Load saved project data (tags and crop positions)
@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
                                   f"Location: {project.input_folder}")
         else:
             QMessageBox.warning(self, "Error",
-                              f"Failed to create project. Project may already exist.")
+                              "Failed to create project. Project may already exist.")
 
     def on_archive_requested(self, project_name: str):
         """Handle archive project request."""
@@ -396,7 +396,7 @@ class MainWindow(QMainWindow):
 
             if added_count > 0:
                 # Rename all images in project (including new ones) by date
-                date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
+                date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S") or "%Y%m%d_%H%M%S"
                 ImageProcessor.rename_by_date(self.current_project, date_format)
 
                 # Reload project to refresh everything cleanly
@@ -457,7 +457,8 @@ class MainWindow(QMainWindow):
                 print(f"Error deleting file {item.file_path}: {e}")
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Refresh grid
         self.image_grid.set_project(self.current_project)
@@ -489,7 +490,8 @@ class MainWindow(QMainWindow):
         self.image_grid.refresh_display()
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Update total cost
         self.update_total_cost()
@@ -528,7 +530,8 @@ class MainWindow(QMainWindow):
         self.image_grid.refresh_display()
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Update total cost
         self.update_total_cost()
@@ -645,11 +648,11 @@ class MainWindow(QMainWindow):
             return
 
         # Reload images
-        supported_formats = self.config.get_setting("supported_formats", [])
+        supported_formats = self.config.get_setting("supported_formats", []) or []
         self.current_project.load_images(supported_formats)
 
         # Rename by date
-        date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
+        date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S") or "%Y%m%d_%H%M%S"
         renamed_count = ImageProcessor.rename_by_date(
             self.current_project,
             date_format
@@ -741,7 +744,8 @@ class MainWindow(QMainWindow):
             progress.close()
 
             # Save project
-            self.project_manager.save_project(self.current_project)
+            if self.current_project:
+                self.project_manager.save_project(self.current_project)
 
             QMessageBox.information(
                 self,
@@ -810,7 +814,7 @@ class MainWindow(QMainWindow):
                     "Install with: pip install torch torchvision"
                 )
                 return
-            except Exception as e:
+            except Exception:
                 import traceback
                 traceback.print_exc()
                 return
@@ -847,7 +851,8 @@ class MainWindow(QMainWindow):
             # Clear any saved crop box since dimensions changed
             self.last_clicked_image.crop_box = None
             # Save project to persist the cleared crop box
-            self.project_manager.save_project(self.current_project)
+            if self.current_project:
+                self.project_manager.save_project(self.current_project)
             # Refresh the thumbnail in the grid
             self.image_grid.refresh_image(self.last_clicked_image)
             # Update detail panel if visible
@@ -956,7 +961,7 @@ class MainWindow(QMainWindow):
             self.project_manager.save_project(self.current_project)
 
         # Ask user to confirm restart
-        reply = QMessageBox.information(
+        QMessageBox.information(
             self,
             "Download Complete",
             "Update downloaded successfully!\n\n"

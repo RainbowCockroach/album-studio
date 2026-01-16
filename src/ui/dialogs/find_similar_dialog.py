@@ -3,8 +3,6 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
                              QScrollArea, QWidget, QGridLayout, QMessageBox,
                              QProgressDialog, QSlider, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QPixmap
-from PIL import Image as PILImage
 from ...services.image_similarity_service import SimilaritySearchWorker
 
 

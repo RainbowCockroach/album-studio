@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List
+from typing import List, Optional
 from .image_item import ImageItem
 
 
@@ -35,7 +35,7 @@ class Project:
         except Exception as e:
             print(f"Error loading images: {e}")
 
-    def get_image_by_path(self, file_path: str) -> ImageItem:
+    def get_image_by_path(self, file_path: str) -> Optional[ImageItem]:
         """Get an image item by its file path."""
         for image in self.images:
             if image.file_path == file_path:

@@ -3,7 +3,7 @@ import os
 from typing import List, Tuple, Optional, Dict
 import numpy as np
 from PIL import Image
-from PyQt6.QtCore import QThread, pyqtSignal, QThreadPool, QRunnable, QObject
+from PyQt6.QtCore import QThread, pyqtSignal
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Lazy imports for torch to avoid loading if not needed
@@ -56,7 +56,7 @@ class ImageSimilarityService:
                 "PyTorch is required for image similarity. "
                 "Install with: pip install torch torchvision"
             ) from e
-        except Exception as e:
+        except Exception:
             raise
 
     def extract_features(self, image_path: str) -> Optional[np.ndarray]:
@@ -78,18 +78,18 @@ class ImageSimilarityService:
             # Load and preprocess image
             img = Image.open(image_path).convert('RGB')
 
-            img_tensor = _transform(img).unsqueeze(0)
+            img_tensor = _transform(img).unsqueeze(0)  # type: ignore[misc]
 
             # Extract features
             with torch.no_grad():
-                features = _model(img_tensor)
+                features = _model(img_tensor)  # type: ignore[misc]
 
             # Convert to numpy array and flatten
             feature_vector = features.squeeze().numpy()
 
             return feature_vector
 
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -333,7 +333,7 @@ class ImageSimilarityService:
             # Convert from numpy archive to regular dict
             cache = {key: loaded[key] for key in loaded.files}
             return cache
-        except Exception as e:
+        except Exception:
             return {}
 
     def _save_cache_to_disk(self, directory: str, cache: Dict[str, np.ndarray]):
@@ -352,9 +352,9 @@ class ImageSimilarityService:
             os.makedirs(cache_dir, exist_ok=True)
 
             # Save cache as compressed numpy archive
-            np.savez_compressed(cache_path, **cache)
+            np.savez_compressed(cache_path, **cache)  # type: ignore[arg-type]
 
-        except Exception as e:
+        except Exception:
             pass
 
 

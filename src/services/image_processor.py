@@ -80,8 +80,10 @@ class ImageProcessor:
                     # 34855: ISOSpeedRatings
                     # 36867: DateTimeOriginal
                     
-                    if 271 in exif: info["Camera Make"] = str(exif[271])
-                    if 272 in exif: info["Camera Model"] = str(exif[272])
+                    if 271 in exif:
+                        info["Camera Make"] = str(exif[271])
+                    if 272 in exif:
+                        info["Camera Model"] = str(exif[272])
                     
                     # Exposure details often in ExifOffset (34665)
                     # Pillow doesn't always automatically parse sub-IFDs with getexif()
