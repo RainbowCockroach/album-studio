@@ -8,7 +8,7 @@ from .widgets.detail_panel import DetailPanel
 from ..models.config import Config
 from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
-from ..services.crop_service import CropService
+from ..services.crop_service import CropService, CropWorker
 from ..services.image_similarity_service import ImageSimilarityService
 from ..services.update_service import UpdateService, ReleaseInfo
 from ..utils.paths import migrate_old_data, get_user_data_dir
@@ -499,12 +499,13 @@ class MainWindow(QMainWindow):
             self.update_detail_panel(image_item)
 
     def update_detail_panel(self, image_item):
-        """Update detail panel with EXIF info."""
+        """Update detail panel with cached EXIF info."""
         if not image_item:
             self.detail_panel.clear()
             return
 
-        info = ImageProcessor.get_exif_info(image_item.file_path)
+        # Use cached EXIF data to avoid re-reading from disk
+        info = image_item.get_exif_data()
         self.detail_panel.set_data(info, image_item)
 
     def update_total_cost(self):
@@ -537,8 +538,8 @@ class MainWindow(QMainWindow):
         # Update last clicked image for similarity search
         self.last_clicked_image = image_item
 
-        # Update detail panel with the selected image info
-        info = ImageProcessor.get_exif_info(image_item.file_path)
+        # Update detail panel with cached EXIF info
+        info = image_item.get_exif_data()
         self.detail_panel.set_data(info, image_item)
 
     def on_image_preview_requested(self, file_path: str):
@@ -702,7 +703,7 @@ class MainWindow(QMainWindow):
         self.image_grid.exit_preview_mode()
 
     def on_save_requested(self):
-        """Handle save button click - crop and save all tagged images."""
+        """Handle save button click - crop and save all tagged images with progress dialog."""
         if not self.current_project:
             return
 
@@ -715,12 +716,29 @@ class MainWindow(QMainWindow):
         self.image_grid.exit_preview_mode()
         self.project_manager.save_project(self.current_project)
 
-        # Show progress
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Preparing to crop images...",
+            "Cancel",
+            0,
+            len(tagged_images),
+            self
+        )
+        progress.setWindowTitle("Cropping Images")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)  # Show immediately
+        progress.setValue(0)
 
-        try:
-            # Crop images
-            cropped_count = self.crop_service.crop_project(self.current_project)
+        # Create and start crop worker
+        crop_worker = CropWorker(self.crop_service, self.current_project)
+
+        # Connect signals
+        def on_progress(current, total, filename):
+            progress.setValue(current)
+            progress.setLabelText(f"Cropping {current}/{total}: {filename}")
+
+        def on_finished(cropped_count):
+            progress.close()
 
             # Save project
             self.project_manager.save_project(self.current_project)
@@ -731,8 +749,19 @@ class MainWindow(QMainWindow):
                 f"Successfully cropped {cropped_count}/{len(tagged_images)} images.\n"
                 f"Output folder: {self.current_project.output_folder}"
             )
-        finally:
-            QApplication.restoreOverrideCursor()
+
+            # Clean up worker
+            crop_worker.deleteLater()
+
+        def on_cancel():
+            crop_worker.cancel()
+
+        crop_worker.progress_updated.connect(on_progress)
+        crop_worker.finished_signal.connect(on_finished)
+        progress.canceled.connect(on_cancel)
+
+        # Start the worker
+        crop_worker.start()
 
     def on_config_requested(self):
         """Handle config button click - open configuration dialog."""
@@ -822,7 +851,9 @@ class MainWindow(QMainWindow):
             # Refresh the thumbnail in the grid
             self.image_grid.refresh_image(self.last_clicked_image)
             # Update detail panel if visible
-            info = ImageProcessor.get_exif_info(self.last_clicked_image.file_path)
+            # Clear cached EXIF since image was rotated
+            self.last_clicked_image.clear_exif_cache()
+            info = self.last_clicked_image.get_exif_data()
             self.detail_panel.set_data(info, self.last_clicked_image)
         else:
             QMessageBox.warning(

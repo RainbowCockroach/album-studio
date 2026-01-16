@@ -18,6 +18,7 @@ class ImageItem:
         self.crop_box: Optional[dict] = None  # {x, y, width, height} in image coordinates
         self._thumbnail: Optional[QPixmap] = None
         self.feature_vector: Optional[np.ndarray] = None  # Cached ResNet50 features for similarity search
+        self.exif_data: Optional[dict] = None  # Cached EXIF info to avoid re-reading
 
     def set_tags(self, album: Optional[str] = None, size: Optional[str] = None):
         """Set album and/or size tags."""
@@ -65,6 +66,17 @@ class ImageItem:
     def clear_thumbnail_cache(self):
         """Clear cached thumbnail to free memory."""
         self._thumbnail = None
+
+    def get_exif_data(self) -> dict:
+        """Get or read EXIF data (cached after first read)."""
+        if self.exif_data is None:
+            from ..services.image_processor import ImageProcessor
+            self.exif_data = ImageProcessor.get_exif_info(self.file_path)
+        return self.exif_data
+
+    def clear_exif_cache(self):
+        """Clear cached EXIF data to force re-reading."""
+        self.exif_data = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

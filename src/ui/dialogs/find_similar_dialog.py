@@ -5,6 +5,7 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QPixmap
 from PIL import Image as PILImage
+from ...services.image_similarity_service import SimilaritySearchWorker
 
 
 class ComparisonImage:
@@ -224,7 +225,7 @@ class FindSimilarDialog(QDialog):
         # Note: Do NOT clear self.similar_images here - that's data, not UI
 
     def find_similar(self):
-        """Find similar images to the target."""
+        """Find similar images to the target using background worker."""
 
         if not self.target_image:
             return
@@ -244,55 +245,39 @@ class FindSimilarDialog(QDialog):
         # Get parameters
         top_k = self.num_results_spin.value()
         min_similarity = self.min_similarity_slider.value() / 100.0
+        supported_formats = self.config.get_setting("supported_formats", [])
 
-        # Show progress dialog
-        progress = QProgressDialog("Loading comparison images...", "Cancel", 0, 100, self)
+        # Create progress dialog
+        progress = QProgressDialog("Preparing similarity search...", "Cancel", 0, 100, self)
+        progress.setWindowTitle("Finding Similar Images")
         progress.setWindowModality(Qt.WindowModality.WindowModal)
         progress.setMinimumDuration(0)
         progress.setValue(0)
 
-        try:
-            # Load images from comparison directory
-            supported_formats = self.config.get_setting("supported_formats", [])
+        # Create and start worker
+        worker = SimilaritySearchWorker(
+            self.similarity_service,
+            self.target_image,
+            comparison_dir,
+            supported_formats,
+            top_k=top_k,
+            min_similarity=min_similarity
+        )
 
-            image_data = self.similarity_service.load_images_from_directory(
-                comparison_dir,
-                supported_formats
-            )
+        # Connect signals
+        def on_progress(current, total, message):
+            if total > 0:
+                progress.setMaximum(total)
+                progress.setValue(current)
+            progress.setLabelText(message)
 
-            if not image_data:
-                progress.close()
-                QMessageBox.warning(
-                    self,
-                    "No Images",
-                    f"No images found in comparison directory:\n{comparison_dir}\n\n"
-                    "Make sure the directory exists and contains images."
-                )
-                return
+        def on_complete(results):
+            progress.close()
 
-            # Convert to ComparisonImage objects
-            self.comparison_images = [
-                ComparisonImage(img['path'], img['features'])
-                for img in image_data
-            ]
-
-            progress.setValue(30)
-            progress.setLabelText("Finding similar images...")
-
-            # Find similar images
-            self.similar_images = self.similarity_service.find_similar_images(
-                self.target_image,
-                self.comparison_images,
-                top_k=top_k,
-                min_similarity=min_similarity
-            )
-
-            progress.setValue(80)
+            self.similar_images = results
 
             # Display results
             self.display_results()
-
-            progress.setValue(100)
 
             if not self.similar_images:
                 msg = "No similar images found. Try lowering the minimum similarity threshold."
@@ -301,18 +286,19 @@ class FindSimilarDialog(QDialog):
                 msg = f"Found {len(self.similar_images)} similar images in comparison directory"
                 self.status_label.setText(msg)
 
-        except Exception as e:
-            print(f"ERROR in find_similar(): {e}")
-            import traceback
-            traceback.print_exc()
-            QMessageBox.critical(
-                self,
-                "Error",
-                f"Failed to find similar images: {str(e)}\n\n"
-                "Make sure PyTorch is installed: pip install torch torchvision"
-            )
-        finally:
-            progress.close()
+            # Clean up worker
+            worker.deleteLater()
+
+        def on_cancel():
+            worker.cancel()
+            self.status_label.setText("Search cancelled")
+
+        worker.progress_updated.connect(on_progress)
+        worker.search_complete.connect(on_complete)
+        progress.canceled.connect(on_cancel)
+
+        # Start the worker
+        worker.start()
 
     def display_results(self):
         """Display similar images in a grid."""
