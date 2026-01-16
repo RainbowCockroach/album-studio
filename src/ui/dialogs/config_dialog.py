@@ -2,8 +2,8 @@ import copy
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
-    QFileDialog, QGroupBox, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDoubleSpinBox
+    QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
+    QDoubleSpinBox, QTabWidget
 )
 from PyQt6.QtCore import Qt, QLocale
 
@@ -33,32 +33,25 @@ class ConfigDialog(QDialog):
         self.init_ui()
 
     def init_ui(self):
-        """Create the split-panel interface."""
+        """Create the tabbed interface."""
         main_layout = QVBoxLayout()
 
-        # Add workspace directory section at the top
-        workspace_section = self.create_workspace_section()
-        main_layout.addWidget(workspace_section)
+        # Create tab widget
+        tab_widget = QTabWidget()
 
-        # Add size costs section
-        size_costs_section = self.create_size_costs_section()
-        main_layout.addWidget(size_costs_section)
+        # Tab 1: Directory settings
+        directory_tab = self.create_directory_tab()
+        tab_widget.addTab(directory_tab, "Directory")
 
-        # Create splitter for two-panel layout
-        splitter = QSplitter(Qt.Orientation.Horizontal)
+        # Tab 2: Size groups
+        size_group_tab = self.create_size_group_tab()
+        tab_widget.addTab(size_group_tab, "Size group")
 
-        # Left panel: Size Groups
-        left_panel = self.create_size_groups_panel()
-        splitter.addWidget(left_panel)
+        # Tab 3: Cost settings
+        cost_tab = self.create_cost_tab()
+        tab_widget.addTab(cost_tab, "Cost")
 
-        # Right panel: Sizes in selected group
-        right_panel = self.create_sizes_panel()
-        splitter.addWidget(right_panel)
-
-        # Set initial splitter sizes (30% left, 70% right)
-        splitter.setSizes([250, 550])
-
-        main_layout.addWidget(splitter)
+        main_layout.addWidget(tab_widget)
 
         # Bottom buttons
         button_layout = QHBoxLayout()
@@ -78,9 +71,9 @@ class ConfigDialog(QDialog):
         # Load initial data
         self.load_size_groups()
 
-    def create_workspace_section(self):
-        """Create workspace directory configuration section."""
-        group_box = QGroupBox("Workspace Settings")
+    def create_directory_tab(self):
+        """Create directory settings tab."""
+        tab = QWidget()
         layout = QVBoxLayout()
 
         # Workspace directory row
@@ -121,8 +114,11 @@ class ConfigDialog(QDialog):
 
         layout.addLayout(comparison_layout)
 
-        group_box.setLayout(layout)
-        return group_box
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
 
     def browse_workspace_directory(self):
         """Browse for workspace directory."""
@@ -152,9 +148,32 @@ class ConfigDialog(QDialog):
         if folder:
             self.comparison_input.setText(folder)
 
-    def create_size_costs_section(self):
-        """Create size costs configuration section."""
-        group_box = QGroupBox("Size Costs")
+    def create_size_group_tab(self):
+        """Create size group settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # Create splitter for two-panel layout
+        splitter = QSplitter(Qt.Orientation.Horizontal)
+
+        # Left panel: Size Groups
+        left_panel = self.create_size_groups_panel()
+        splitter.addWidget(left_panel)
+
+        # Right panel: Sizes in selected group
+        right_panel = self.create_sizes_panel()
+        splitter.addWidget(right_panel)
+
+        # Set initial splitter sizes (30% left, 70% right)
+        splitter.setSizes([250, 550])
+
+        layout.addWidget(splitter)
+        tab.setLayout(layout)
+        return tab
+
+    def create_cost_tab(self):
+        """Create cost settings tab."""
+        tab = QWidget()
         layout = QVBoxLayout()
 
         # Info label
@@ -168,8 +187,7 @@ class ConfigDialog(QDialog):
         self.costs_table.setHorizontalHeaderLabels(["Size", "Cost"])
         self.costs_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
         self.costs_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.Fixed)
-        self.costs_table.setColumnWidth(1, 100)
-        self.costs_table.setMaximumHeight(150)
+        self.costs_table.setColumnWidth(1, 150)
         self.costs_table.verticalHeader().setVisible(False)
 
         layout.addWidget(self.costs_table)
@@ -177,8 +195,11 @@ class ConfigDialog(QDialog):
         # Load initial costs
         self.load_size_costs()
 
-        group_box.setLayout(layout)
-        return group_box
+        # Add stretch to allow table to expand
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
 
     def load_size_costs(self):
         """Load size costs into the table."""
