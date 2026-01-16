@@ -9,7 +9,6 @@ class ToolbarBottom(QWidget):
     crop_requested = pyqtSignal()  # Enter preview mode
     save_requested = pyqtSignal()  # Save and crop images
     cancel_requested = pyqtSignal()  # Cancel preview mode
-    refresh_requested = pyqtSignal()
     config_requested = pyqtSignal()  # Config button clicked
     detail_toggled = pyqtSignal(bool)  # Show/hide detail panel
     tags_changed = pyqtSignal(str, str)  # Emits album, size
@@ -71,11 +70,6 @@ class ToolbarBottom(QWidget):
         self.size_combo.currentTextChanged.connect(self.on_size_changed)
         layout.addWidget(self.size_combo)
 
-        # Refresh button
-        self.refresh_btn = QPushButton("Refresh & Rename Images")
-        self.refresh_btn.clicked.connect(self.on_refresh_clicked)
-        layout.addWidget(self.refresh_btn)
-
         # Crop button (shows preview mode)
         self.crop_btn = QPushButton("Crop")
         self.crop_btn.clicked.connect(self.on_crop_clicked)
@@ -110,7 +104,6 @@ class ToolbarBottom(QWidget):
         self.crop_btn.setEnabled(enabled)
         self.cancel_btn.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)
-        self.refresh_btn.setEnabled(enabled)
         self.rotate_btn.setEnabled(enabled)
 
     #region | Group + size dropdowns
@@ -179,12 +172,6 @@ class ToolbarBottom(QWidget):
         self.cancel_btn.hide()
         self.save_btn.hide()
         self.crop_btn.show()
-    #endregion
-
-    #region | Refresh button
-    def on_refresh_clicked(self):
-        """Handle refresh button click."""
-        self.refresh_requested.emit()
     #endregion
 
     #region | Config button

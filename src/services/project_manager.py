@@ -11,7 +11,7 @@ from PIL import Image
 class ProjectManager:
     """Service for managing projects: CRUD operations and persistence."""
 
-    def __init__(self, data_dir: str = None):
+    def __init__(self, data_dir: Optional[str] = None):
         # Use user data directory by default (persists across updates)
         self.data_dir = data_dir if data_dir else get_user_data_dir()
         self.projects_file = os.path.join(self.data_dir, "projects.json")
@@ -134,22 +134,22 @@ class ProjectManager:
         for project in self.projects:
             for image_item in project.images:
                 # Clear if size group was deleted
-                if image_item.album in deleted_size_groups:
-                    if image_item.album or image_item.size_id:
-                        image_item.album = None
-                        image_item.size_id = None
+                if image_item.album_tag in deleted_size_groups:
+                    if image_item.album_tag or image_item.size_tag:
+                        image_item.album_tag = None
+                        image_item.size_tag = None
                         total_cleared += 1
                 # Clear if size was deleted
-                elif image_item.size_id in deleted_size_ids:
-                    if image_item.size_id:
-                        image_item.size_id = None
+                elif image_item.size_tag in deleted_size_ids:
+                    if image_item.size_tag:
+                        image_item.size_tag = None
                         total_cleared += 1
 
             # Save project if any tags were cleared
             if total_cleared > 0:
                 self.save_project(project)
 
-    def archive_project(self, project_name: str, workspace_dir: str = None, thumbnail_size: int = 800) -> dict:
+    def archive_project(self, project_name: str, workspace_dir: Optional[str] = None, thumbnail_size: int = 800) -> dict:
         """Archive a project by:
         1. Creating thumbnails of all output folder images → save to 'printed' folder at workspace root
         2. Zipping the output folder → save to workspace root
@@ -197,13 +197,13 @@ class ProjectManager:
 
             # Count files before processing
             total_files = 0
-            for root, dirs, files in os.walk(project.output_folder):
+            for root, _, files in os.walk(project.output_folder):
                 for file in files:
                     if file.lower().endswith(('.jpg', '.jpeg', '.png', '.heic')):
                         total_files += 1
 
             # Process files
-            for root, dirs, files in os.walk(project.output_folder):
+            for root, _, files in os.walk(project.output_folder):
 
                 for file in files:
                     if file.lower().endswith(('.jpg', '.jpeg', '.png', '.heic')):
@@ -225,7 +225,7 @@ class ProjectManager:
                                 img.save(thumb_path, 'JPEG', quality=85)
 
                                 stats['thumbnails_created'] += 1
-                        except Exception as e:
+                        except Exception:
                             import traceback
                             traceback.print_exc()
                     else:
@@ -240,11 +240,11 @@ class ProjectManager:
             try:
                 # Count files to zip
                 zip_file_count = 0
-                for root, dirs, files in os.walk(project.output_folder):
+                for root, _, files in os.walk(project.output_folder):
                     zip_file_count += len(files)
 
                 with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for root, dirs, files in os.walk(project.output_folder):
+                    for root, _, files in os.walk(project.output_folder):
                         for file in files:
                             file_path = os.path.join(root, file)
                             arcname = os.path.relpath(file_path, os.path.dirname(project.output_folder))
@@ -252,12 +252,11 @@ class ProjectManager:
 
                 # Verify zip was created
                 if os.path.exists(zip_path):
-                    zip_size = os.path.getsize(zip_path)
                     stats['zip_created'] = True
                 else:
                     pass
 
-            except Exception as e:
+            except Exception:
                 import traceback
                 traceback.print_exc()
                 raise
@@ -272,7 +271,7 @@ class ProjectManager:
                 pass
 
             stats['folders_deleted'] = True
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             raise

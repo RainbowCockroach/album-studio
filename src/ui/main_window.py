@@ -8,10 +8,10 @@ from .widgets.detail_panel import DetailPanel
 from ..models.config import Config
 from ..services.project_manager import ProjectManager
 from ..services.image_processor import ImageProcessor
-from ..services.crop_service import CropService
+from ..services.crop_service import CropService, CropWorker
 from ..services.image_similarity_service import ImageSimilarityService
 from ..services.update_service import UpdateService, ReleaseInfo
-from ..utils.paths import migrate_old_data, get_user_data_dir
+from ..utils.paths import migrate_old_data
 from typing import Optional
 
 
@@ -141,12 +141,12 @@ class MainWindow(QMainWindow):
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
+        self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
         self.tag_panel.save_requested.connect(self.on_save_requested)
         self.tag_panel.cancel_requested.connect(self.on_cancel_requested)
-        self.tag_panel.refresh_requested.connect(self.on_refresh_requested)
         self.tag_panel.config_requested.connect(self.on_config_requested)
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
@@ -184,7 +184,7 @@ class MainWindow(QMainWindow):
         self.current_project = project
 
         # Load images from folder
-        supported_formats = self.config.get_setting("supported_formats", [])
+        supported_formats = self.config.get_setting("supported_formats", []) or []
         project.load_images(supported_formats)
 
         # Load saved project data (tags and crop positions)
@@ -248,7 +248,7 @@ class MainWindow(QMainWindow):
                                   f"Location: {project.input_folder}")
         else:
             QMessageBox.warning(self, "Error",
-                              f"Failed to create project. Project may already exist.")
+                              "Failed to create project. Project may already exist.")
 
     def on_archive_requested(self, project_name: str):
         """Handle archive project request."""
@@ -396,7 +396,7 @@ class MainWindow(QMainWindow):
 
             if added_count > 0:
                 # Rename all images in project (including new ones) by date
-                date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
+                date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S") or "%Y%m%d_%H%M%S"
                 ImageProcessor.rename_by_date(self.current_project, date_format)
 
                 # Reload project to refresh everything cleanly
@@ -457,7 +457,8 @@ class MainWindow(QMainWindow):
                 print(f"Error deleting file {item.file_path}: {e}")
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Refresh grid
         self.image_grid.set_project(self.current_project)
@@ -489,7 +490,8 @@ class MainWindow(QMainWindow):
         self.image_grid.refresh_display()
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Update total cost
         self.update_total_cost()
@@ -499,12 +501,13 @@ class MainWindow(QMainWindow):
             self.update_detail_panel(image_item)
 
     def update_detail_panel(self, image_item):
-        """Update detail panel with EXIF info."""
+        """Update detail panel with cached EXIF info."""
         if not image_item:
             self.detail_panel.clear()
             return
 
-        info = ImageProcessor.get_exif_info(image_item.file_path)
+        # Use cached EXIF data to avoid re-reading from disk
+        info = image_item.get_exif_data()
         self.detail_panel.set_data(info, image_item)
 
     def update_total_cost(self):
@@ -527,7 +530,8 @@ class MainWindow(QMainWindow):
         self.image_grid.refresh_display()
 
         # Save project
-        self.project_manager.save_project(self.current_project)
+        if self.current_project:
+            self.project_manager.save_project(self.current_project)
 
         # Update total cost
         self.update_total_cost()
@@ -537,15 +541,19 @@ class MainWindow(QMainWindow):
         # Update last clicked image for similarity search
         self.last_clicked_image = image_item
 
-        # Update detail panel with the selected image info
-        info = ImageProcessor.get_exif_info(image_item.file_path)
+        # Update detail panel with cached EXIF info
+        info = image_item.get_exif_data()
         self.detail_panel.set_data(info, image_item)
 
-    def on_image_preview_requested(self, file_path: str):
+    def on_image_preview_requested(self, image_item):
         """Handle right double click on image - open image viewer dialog."""
         from .dialogs.image_viewer_dialog import ImageViewerDialog
-        dialog = ImageViewerDialog(file_path, self)
-        dialog.exec()
+
+        # Fix for Qt bug QTBUG-50051: Use open() instead of exec()
+        # exec() creates a nested event loop that causes mouse release events to be lost
+        # open() is asynchronous and recommended by Qt documentation
+        dialog = ImageViewerDialog(image_item.file_path, self, image_item=image_item, config=self.config)
+        dialog.open()  # Changed from exec() to open()
 
     def on_rename_requested(self, image_item):
         """Handle rename request from detail panel."""
@@ -644,11 +652,11 @@ class MainWindow(QMainWindow):
             return
 
         # Reload images
-        supported_formats = self.config.get_setting("supported_formats", [])
+        supported_formats = self.config.get_setting("supported_formats", []) or []
         self.current_project.load_images(supported_formats)
 
         # Rename by date
-        date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S")
+        date_format = self.config.get_setting("date_format", "%Y%m%d_%H%M%S") or "%Y%m%d_%H%M%S"
         renamed_count = ImageProcessor.rename_by_date(
             self.current_project,
             date_format
@@ -702,7 +710,7 @@ class MainWindow(QMainWindow):
         self.image_grid.exit_preview_mode()
 
     def on_save_requested(self):
-        """Handle save button click - crop and save all tagged images."""
+        """Handle save button click - crop and save all tagged images with progress dialog."""
         if not self.current_project:
             return
 
@@ -715,15 +723,33 @@ class MainWindow(QMainWindow):
         self.image_grid.exit_preview_mode()
         self.project_manager.save_project(self.current_project)
 
-        # Show progress
-        QApplication.setOverrideCursor(Qt.CursorShape.WaitCursor)
+        # Create progress dialog
+        progress = QProgressDialog(
+            "Preparing to crop images...",
+            "Cancel",
+            0,
+            len(tagged_images),
+            self
+        )
+        progress.setWindowTitle("Cropping Images")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)  # Show immediately
+        progress.setValue(0)
 
-        try:
-            # Crop images
-            cropped_count = self.crop_service.crop_project(self.current_project)
+        # Create and start crop worker
+        crop_worker = CropWorker(self.crop_service, self.current_project)
+
+        # Connect signals
+        def on_progress(current, total, filename):
+            progress.setValue(current)
+            progress.setLabelText(f"Cropping {current}/{total}: {filename}")
+
+        def on_finished(cropped_count):
+            progress.close()
 
             # Save project
-            self.project_manager.save_project(self.current_project)
+            if self.current_project:
+                self.project_manager.save_project(self.current_project)
 
             QMessageBox.information(
                 self,
@@ -731,8 +757,19 @@ class MainWindow(QMainWindow):
                 f"Successfully cropped {cropped_count}/{len(tagged_images)} images.\n"
                 f"Output folder: {self.current_project.output_folder}"
             )
-        finally:
-            QApplication.restoreOverrideCursor()
+
+            # Clean up worker
+            crop_worker.deleteLater()
+
+        def on_cancel():
+            crop_worker.cancel()
+
+        crop_worker.progress_updated.connect(on_progress)
+        crop_worker.finished_signal.connect(on_finished)
+        progress.canceled.connect(on_cancel)
+
+        # Start the worker
+        crop_worker.start()
 
     def on_config_requested(self):
         """Handle config button click - open configuration dialog."""
@@ -781,7 +818,7 @@ class MainWindow(QMainWindow):
                     "Install with: pip install torch torchvision"
                 )
                 return
-            except Exception as e:
+            except Exception:
                 import traceback
                 traceback.print_exc()
                 return
@@ -818,11 +855,14 @@ class MainWindow(QMainWindow):
             # Clear any saved crop box since dimensions changed
             self.last_clicked_image.crop_box = None
             # Save project to persist the cleared crop box
-            self.project_manager.save_project(self.current_project)
+            if self.current_project:
+                self.project_manager.save_project(self.current_project)
             # Refresh the thumbnail in the grid
             self.image_grid.refresh_image(self.last_clicked_image)
             # Update detail panel if visible
-            info = ImageProcessor.get_exif_info(self.last_clicked_image.file_path)
+            # Clear cached EXIF since image was rotated
+            self.last_clicked_image.clear_exif_cache()
+            info = self.last_clicked_image.get_exif_data()
             self.detail_panel.set_data(info, self.last_clicked_image)
         else:
             QMessageBox.warning(
@@ -925,7 +965,7 @@ class MainWindow(QMainWindow):
             self.project_manager.save_project(self.current_project)
 
         # Ask user to confirm restart
-        reply = QMessageBox.information(
+        QMessageBox.information(
             self,
             "Download Complete",
             "Update downloaded successfully!\n\n"

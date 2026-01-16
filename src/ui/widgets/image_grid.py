@@ -1,9 +1,29 @@
 from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
                              QVBoxLayout, QFrame, QApplication)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect
-from PyQt6.QtGui import QPixmap, QPalette
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
+from PyQt6.QtGui import QPixmap, QColor
 from .crop_overlay import CropOverlay
 from src.utils.image_loader import ImageLoader
+
+
+class ThumbnailLoaderWorker(QThread):
+    """Background worker thread for loading thumbnails asynchronously."""
+
+    thumbnail_loaded = pyqtSignal(object, QPixmap)  # Emits (ImageItem, QPixmap)
+
+    def __init__(self, image_item, thumbnail_size):
+        super().__init__()
+        self.image_item = image_item
+        self.thumbnail_size = thumbnail_size
+
+    def run(self):
+        """Load thumbnail in background thread."""
+        try:
+            pixmap = self.image_item.get_thumbnail(self.thumbnail_size)
+            if pixmap and not pixmap.isNull():
+                self.thumbnail_loaded.emit(self.image_item, pixmap)
+        except Exception as e:
+            print(f"Error loading thumbnail in background: {e}")
 
 
 class ImageGrid(QWidget):
@@ -12,7 +32,7 @@ class ImageGrid(QWidget):
     image_clicked = pyqtSignal(object)  # Emits ImageItem
     image_double_clicked = pyqtSignal(object)  # Emits ImageItem
     image_selected = pyqtSignal(object)  # Emits ImageItem when right-clicked for selection
-    image_preview_requested = pyqtSignal(str)  # Emits file path for right double-click
+    image_preview_requested = pyqtSignal(object)  # Emits ImageItem for right double-click
 
     def __init__(self, config):
         super().__init__()
@@ -25,6 +45,7 @@ class ImageGrid(QWidget):
         self.selection_mode = False
         self.selected_items = set()
         self.current_selected_item = None  # Single image selection via right-click
+        self.thumbnail_workers = []  # Track active thumbnail loading threads
         self.init_ui()
 
     def init_ui(self):
@@ -54,7 +75,7 @@ class ImageGrid(QWidget):
         self.load_images()
 
     def load_images(self):
-        """Load images from current project into grid."""
+        """Load images from current project into grid with background thumbnail loading."""
         self.clear_grid()
         self.selected_items.clear()  # Clear selection on reload
         self.current_selected_item = None  # Clear current selection
@@ -66,8 +87,8 @@ class ImageGrid(QWidget):
         col = 0
 
         for image_item in self.current_project.images:
-            # Create image widget
-            image_widget = ImageWidget(image_item, self.thumbnail_size)
+            # Create image widget with placeholder (no immediate thumbnail loading)
+            image_widget = ImageWidget(image_item, self.thumbnail_size, load_immediately=False)
             image_widget.clicked.connect(lambda item=image_item: self.on_image_clicked(item))
             image_widget.double_clicked.connect(lambda item=image_item: self.on_image_double_clicked(item))
             image_widget.right_clicked.connect(lambda item=image_item: self.on_image_right_clicked(item))
@@ -77,14 +98,38 @@ class ImageGrid(QWidget):
             self.grid_layout.addWidget(image_widget, row, col)
             self.image_widgets[image_item] = image_widget
 
+            # Start background thumbnail loading
+            worker = ThumbnailLoaderWorker(image_item, self.thumbnail_size)
+            worker.thumbnail_loaded.connect(self._on_thumbnail_loaded)
+            worker.finished.connect(lambda w=worker: self._on_worker_finished(w))
+            self.thumbnail_workers.append(worker)
+            worker.start()
+
             # Update position
             col += 1
             if col >= self.columns:
                 col = 0
                 row += 1
 
+    def _on_thumbnail_loaded(self, image_item, pixmap):
+        """Handle thumbnail loaded in background thread."""
+        if image_item in self.image_widgets:
+            self.image_widgets[image_item].set_thumbnail(pixmap)
+
+    def _on_worker_finished(self, worker):
+        """Clean up finished thumbnail loading worker."""
+        if worker in self.thumbnail_workers:
+            self.thumbnail_workers.remove(worker)
+            worker.deleteLater()
+
     def clear_grid(self):
         """Clear all images from the grid."""
+        # Stop all running thumbnail workers
+        for worker in self.thumbnail_workers:
+            worker.quit()
+            worker.wait()
+        self.thumbnail_workers.clear()
+
         while self.grid_layout.count():
             item = self.grid_layout.takeAt(0)
             if item:
@@ -156,9 +201,9 @@ class ImageGrid(QWidget):
         # Emit signal for main window
         self.image_selected.emit(image_item)
 
-    def on_image_right_double_clicked(self, file_path: str):
+    def on_image_right_double_clicked(self, image_item):
         """Handle right double click on image - open image viewer dialog."""
-        self.image_preview_requested.emit(file_path)
+        self.image_preview_requested.emit(image_item)
 
     def get_current_selected_item(self):
         """Get the currently selected image (via right-click)."""
@@ -183,7 +228,7 @@ class ImageGrid(QWidget):
     def exit_preview_mode(self):
         """Exit crop preview mode."""
         self.preview_mode = False
-        for image_item, widget in self.image_widgets.items():
+        for _, widget in self.image_widgets.items():
             widget.exit_preview_mode()
 
 
@@ -193,12 +238,13 @@ class ImageWidget(QFrame):
     clicked = pyqtSignal()
     double_clicked = pyqtSignal()
     right_clicked = pyqtSignal()  # Emits when right-clicked for selection
-    right_double_clicked = pyqtSignal(str)  # Emits file path for image viewer
+    right_double_clicked = pyqtSignal(object)  # Emits ImageItem for image viewer
 
-    def __init__(self, image_item, thumbnail_size):
+    def __init__(self, image_item, thumbnail_size, load_immediately=True):
         super().__init__()
         self.image_item = image_item
         self.thumbnail_size = thumbnail_size
+        self.load_immediately = load_immediately
         self.click_timer = QTimer()
         self.click_timer.setSingleShot(True)
         self.click_timer.timeout.connect(self._handle_single_click)
@@ -226,12 +272,16 @@ class ImageWidget(QFrame):
         self.thumbnail_label.setFixedSize(self.thumbnail_size, self.thumbnail_size)
         self.thumbnail_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Load thumbnail
-        pixmap = self.image_item.get_thumbnail(self.thumbnail_size)
-        if pixmap:
-            self.thumbnail_label.setPixmap(pixmap)
+        # Load thumbnail or show placeholder
+        if self.load_immediately:
+            pixmap = self.image_item.get_thumbnail(self.thumbnail_size)
+            if pixmap:
+                self.thumbnail_label.setPixmap(pixmap)
+            else:
+                self.thumbnail_label.setText("No Image")
         else:
-            self.thumbnail_label.setText("No Image")
+            # Show placeholder while loading in background
+            self._show_placeholder()
 
         layout.addWidget(self.thumbnail_label)
 
@@ -250,6 +300,19 @@ class ImageWidget(QFrame):
 
         self.setLayout(layout)
         self.update_border()
+
+    def _show_placeholder(self):
+        """Show a placeholder while thumbnail is loading."""
+        # Create a simple gray placeholder pixmap
+        placeholder = QPixmap(self.thumbnail_size, self.thumbnail_size)
+        placeholder.fill(QColor(220, 220, 220))  # Light gray
+        self.thumbnail_label.setPixmap(placeholder)
+        self.thumbnail_label.setText("")  # Clear any text
+
+    def set_thumbnail(self, pixmap: QPixmap):
+        """Set the thumbnail pixmap (called when loaded in background)."""
+        if pixmap and not pixmap.isNull():
+            self.thumbnail_label.setPixmap(pixmap)
 
     def set_selected(self, selected: bool):
         """Set visual selection state for batch delete mode."""
@@ -347,8 +410,8 @@ class ImageWidget(QFrame):
                 self.right_click_timer.stop()
                 # Set flag to ignore next single right click
                 self.right_double_click_flag = True
-                # Emit right double click signal with file path
-                self.right_double_clicked.emit(self.image_item.file_path)
+                # Emit right double click signal with ImageItem
+                self.right_double_clicked.emit(self.image_item)
 
     def enter_preview_mode(self, config):
         """Enter crop preview mode - show crop overlay."""

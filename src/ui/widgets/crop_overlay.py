@@ -197,10 +197,6 @@ class CropOverlay(QWidget):
 
         # Ensure minimum size while maintaining aspect ratio
         if constrained.width() < self.min_size or constrained.height() < self.min_size:
-            # Calculate minimum dimensions that satisfy both min_size and aspect ratio
-            min_width_for_height = self.min_size * self.aspect_ratio
-            min_height_for_width = self.min_size / self.aspect_ratio
-
             if self.aspect_ratio >= 1.0:
                 # Wider than tall: height is the limiting factor
                 new_height = max(self.min_size, constrained.height())
@@ -327,7 +323,7 @@ class CropOverlay(QWidget):
     def mouseMoveEvent(self, a0):
         """Handle dragging or resizing the crop rectangle."""
         if a0:
-            if self.resizing:
+            if self.resizing and self.resize_corner:
                 # Resize mode
                 new_rect = self._resize_from_corner(self.resize_corner, a0.pos())
                 self.crop_rect = new_rect

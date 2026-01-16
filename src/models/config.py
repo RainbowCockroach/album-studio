@@ -1,15 +1,14 @@
 import json
 import os
 import re
-import shutil
-from typing import Dict, List
+from typing import Dict, List, Optional
 from ..utils.paths import get_config_dir, get_user_config_dir
 
 
 class Config:
     """Global configuration manager for albums, sizes, and settings."""
 
-    def __init__(self, config_dir: str = None):
+    def __init__(self, config_dir: Optional[str] = None):
         # Bundled config directory (ships with app, read-only)
         self.bundled_config_dir = config_dir if config_dir else get_config_dir()
         # User config directory (for modifications, persists across updates)
@@ -40,7 +39,7 @@ class Config:
                 # Migrate old format to new format
                 self.size_groups = self._migrate_size_group_data(data)
         except FileNotFoundError:
-            print(f"Warning: size_group.json not found. Using empty size groups.")
+            print("Warning: size_group.json not found. Using empty size groups.")
             self.size_groups = {}
         except json.JSONDecodeError as e:
             print(f"Error loading size_group.json: {e}")
@@ -58,7 +57,7 @@ class Config:
             with open(sizes_path, 'r') as f:
                 self.sizes = json.load(f)
         except FileNotFoundError:
-            print(f"Warning: sizes.json not found. Using empty sizes.")
+            print("Warning: sizes.json not found. Using empty sizes.")
             self.sizes = {}
         except json.JSONDecodeError as e:
             print(f"Error loading sizes.json: {e}")
@@ -76,7 +75,7 @@ class Config:
             with open(settings_path, 'r') as f:
                 self.settings = json.load(f)
         except FileNotFoundError:
-            print(f"Warning: settings.json not found. Using default settings.")
+            print("Warning: settings.json not found. Using default settings.")
             self.settings = self._get_default_settings()
         except json.JSONDecodeError as e:
             print(f"Error loading settings.json: {e}")

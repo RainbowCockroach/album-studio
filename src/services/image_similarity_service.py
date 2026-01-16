@@ -3,6 +3,8 @@ import os
 from typing import List, Tuple, Optional, Dict
 import numpy as np
 from PIL import Image
+from PyQt6.QtCore import QThread, pyqtSignal
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Lazy imports for torch to avoid loading if not needed
 _model = None
@@ -54,7 +56,7 @@ class ImageSimilarityService:
                 "PyTorch is required for image similarity. "
                 "Install with: pip install torch torchvision"
             ) from e
-        except Exception as e:
+        except Exception:
             raise
 
     def extract_features(self, image_path: str) -> Optional[np.ndarray]:
@@ -76,18 +78,18 @@ class ImageSimilarityService:
             # Load and preprocess image
             img = Image.open(image_path).convert('RGB')
 
-            img_tensor = _transform(img).unsqueeze(0)
+            img_tensor = _transform(img).unsqueeze(0)  # type: ignore[misc]
 
             # Extract features
             with torch.no_grad():
-                features = _model(img_tensor)
+                features = _model(img_tensor)  # type: ignore[misc]
 
             # Convert to numpy array and flatten
             feature_vector = features.squeeze().numpy()
 
             return feature_vector
 
-        except Exception as e:
+        except Exception:
             import traceback
             traceback.print_exc()
             return None
@@ -217,13 +219,19 @@ class ImageSimilarityService:
 
         print(f"Precomputed features for {total} images")
 
-    def load_images_from_directory(self, directory: str, supported_formats: List[str]) -> List[Dict]:
+    def load_images_from_directory(
+        self,
+        directory: str,
+        supported_formats: List[str],
+        progress_callback=None
+    ) -> List[Dict]:
         """
-        Load images from a directory (top level only, no recursion).
+        Load images from a directory (top level only, no recursion) with parallel feature extraction.
 
         Args:
             directory: Path to the directory containing images
             supported_formats: List of supported file extensions (e.g., ['.jpg', '.png'])
+            progress_callback: Optional callback(current, total) for progress updates
 
         Returns:
             List of dicts with {'path': str, 'features': np.ndarray or None}
@@ -234,7 +242,8 @@ class ImageSimilarityService:
         # Load cache
         cache = self._load_cache_from_disk(directory)
 
-        images = []
+        # Collect all image paths
+        image_paths = []
         for filename in os.listdir(directory):
             file_path = os.path.join(directory, filename)
 
@@ -247,22 +256,58 @@ class ImageSimilarityService:
             if ext.lower() not in [fmt.lower() for fmt in supported_formats]:
                 continue
 
-            # Get features from cache or extract
+            image_paths.append(file_path)
+
+        if not image_paths:
+            return []
+
+        total = len(image_paths)
+        images = []
+        paths_needing_extraction = []
+
+        # First pass: collect paths that need feature extraction
+        for file_path in image_paths:
             features = cache.get(file_path)
             if features is None:
-                features = self.extract_features(file_path)
-                if features is not None:
-                    # Update cache
-                    cache[file_path] = features
+                paths_needing_extraction.append(file_path)
+            else:
+                images.append({'path': file_path, 'features': features})
 
-            images.append({
-                'path': file_path,
-                'features': features
-            })
+        # If no extraction needed, return cached results
+        if not paths_needing_extraction:
+            return images
+
+        # Parallel feature extraction for uncached images
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Submit all extraction tasks
+            future_to_path = {
+                executor.submit(self.extract_features, path): path
+                for path in paths_needing_extraction
+            }
+
+            # Process completed tasks
+            completed = 0
+            for future in as_completed(future_to_path):
+                path = future_to_path[future]
+                try:
+                    features = future.result()
+                    if features is not None:
+                        cache[path] = features
+                        images.append({'path': path, 'features': features})
+                    else:
+                        images.append({'path': path, 'features': None})
+                except Exception as e:
+                    print(f"Error extracting features for {path}: {e}")
+                    images.append({'path': path, 'features': None})
+
+                completed += 1
+                if progress_callback:
+                    # Report progress based on total images
+                    current = len(image_paths) - len(paths_needing_extraction) + completed
+                    progress_callback(current, total)
 
         # Save updated cache
-        if images:
-            self._save_cache_to_disk(directory, cache)
+        self._save_cache_to_disk(directory, cache)
 
         return images
 
@@ -288,7 +333,7 @@ class ImageSimilarityService:
             # Convert from numpy archive to regular dict
             cache = {key: loaded[key] for key in loaded.files}
             return cache
-        except Exception as e:
+        except Exception:
             return {}
 
     def _save_cache_to_disk(self, directory: str, cache: Dict[str, np.ndarray]):
@@ -307,7 +352,84 @@ class ImageSimilarityService:
             os.makedirs(cache_dir, exist_ok=True)
 
             # Save cache as compressed numpy archive
-            np.savez_compressed(cache_path, **cache)
+            np.savez_compressed(cache_path, **cache)  # type: ignore[arg-type]
+
+        except Exception:
+            pass
+
+
+class SimilaritySearchWorker(QThread):
+    """Background worker for similarity search with progress updates."""
+
+    progress_updated = pyqtSignal(int, int, str)  # current, total, message
+    search_complete = pyqtSignal(list)  # list of similar images
+
+    def __init__(
+        self,
+        similarity_service,
+        target_image,
+        comparison_directory: str,
+        supported_formats: List[str],
+        top_k: int = 20,
+        min_similarity: float = 0.5
+    ):
+        super().__init__()
+        self.similarity_service = similarity_service
+        self.target_image = target_image
+        self.comparison_directory = comparison_directory
+        self.supported_formats = supported_formats
+        self.top_k = top_k
+        self.min_similarity = min_similarity
+        self.cancelled = False
+
+    def run(self):
+        """Run similarity search in background."""
+        try:
+            # Load comparison images with parallel feature extraction
+            def on_progress(current, total):
+                if not self.cancelled:
+                    self.progress_updated.emit(current, total, f"Processing image {current}/{total}")
+
+            self.progress_updated.emit(0, 0, "Loading comparison images...")
+
+            comparison_images = self.similarity_service.load_images_from_directory(
+                self.comparison_directory,
+                self.supported_formats,
+                progress_callback=on_progress
+            )
+
+            if self.cancelled:
+                self.search_complete.emit([])
+                return
+
+            # Convert to ImageItem-like objects for find_similar_images
+            from ..models.image_item import ImageItem
+
+            candidate_items = []
+            for img_dict in comparison_images:
+                if img_dict['features'] is not None:
+                    item = ImageItem(img_dict['path'])
+                    item.feature_vector = img_dict['features']
+                    candidate_items.append(item)
+
+            self.progress_updated.emit(0, 0, "Finding similar images...")
+
+            # Find similar images
+            results = self.similarity_service.find_similar_images(
+                self.target_image,
+                candidate_items,
+                top_k=self.top_k,
+                min_similarity=self.min_similarity
+            )
+
+            self.search_complete.emit(results)
 
         except Exception as e:
-            pass
+            print(f"Error in similarity search: {e}")
+            import traceback
+            traceback.print_exc()
+            self.search_complete.emit([])
+
+    def cancel(self):
+        """Cancel the search operation."""
+        self.cancelled = True
