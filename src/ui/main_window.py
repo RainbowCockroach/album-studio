@@ -548,8 +548,12 @@ class MainWindow(QMainWindow):
     def on_image_preview_requested(self, file_path: str):
         """Handle right double click on image - open image viewer dialog."""
         from .dialogs.image_viewer_dialog import ImageViewerDialog
+
+        # Fix for Qt bug QTBUG-50051: Use open() instead of exec()
+        # exec() creates a nested event loop that causes mouse release events to be lost
+        # open() is asynchronous and recommended by Qt documentation
         dialog = ImageViewerDialog(file_path, self)
-        dialog.exec()
+        dialog.open()  # Changed from exec() to open()
 
     def on_rename_requested(self, image_item):
         """Handle rename request from detail panel."""
