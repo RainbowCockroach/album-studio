@@ -4,15 +4,17 @@ import shutil
 import zipfile
 from typing import List, Optional
 from ..models.project import Project
+from ..utils.paths import get_user_data_dir
 from PIL import Image
 
 
 class ProjectManager:
     """Service for managing projects: CRUD operations and persistence."""
 
-    def __init__(self, data_dir: str = "data"):
-        self.data_dir = data_dir
-        self.projects_file = os.path.join(data_dir, "projects.json")
+    def __init__(self, data_dir: str = None):
+        # Use user data directory by default (persists across updates)
+        self.data_dir = data_dir if data_dir else get_user_data_dir()
+        self.projects_file = os.path.join(self.data_dir, "projects.json")
         self.projects: List[Project] = []
 
     def load_projects(self) -> List[Project]:
