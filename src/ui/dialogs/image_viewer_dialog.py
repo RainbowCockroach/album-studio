@@ -108,9 +108,11 @@ class ZoomableImageLabel(QLabel):
 class ImageViewerDialog(QDialog):
     """Dialog for viewing an image in detail with zoom support."""
 
-    def __init__(self, image_path: str, parent=None):
+    def __init__(self, image_path: str, parent=None, image_item=None, config=None):
         super().__init__(parent)
         self.image_path = image_path
+        self.image_item = image_item
+        self.config = config
 
         self.setWindowTitle("Image Viewer")
         self.setWindowFlags(
@@ -171,8 +173,57 @@ class ImageViewerDialog(QDialog):
         self.setLayout(layout)
 
     def load_image(self):
-        """Load the image at full resolution."""
-        pixmap = ImageLoader.load_pixmap(self.image_path)
+        """Load the image at full resolution, cropped if tagged."""
+        # Check if we should display cropped version
+        should_crop = (self.image_item is not None and
+                      self.image_item.is_fully_tagged() and
+                      self.config is not None)
+
+        if should_crop:
+            # Load cropped version using CropService
+            try:
+                from PIL import Image
+                from src.services.crop_service import CropService
+
+                crop_service = CropService(self.config)
+                crop_box = crop_service.get_crop_box(
+                    self.image_path,
+                    self.image_item.size_tag,
+                    manual_crop_box=self.image_item.crop_box
+                )
+
+                if crop_box:
+                    # Load image with Pillow and crop it
+                    img = Image.open(self.image_path)
+                    if img.mode != 'RGB':
+                        img = img.convert('RGB')
+
+                    x, y, width, height = crop_box
+                    cropped_img = img.crop((x, y, x + width, y + height))
+
+                    # Convert PIL Image to QPixmap
+                    import io
+
+                    # Save PIL image to bytes
+                    img_bytes = io.BytesIO()
+                    cropped_img.save(img_bytes, format='PNG')
+                    img_bytes.seek(0)
+
+                    # Load bytes into QPixmap
+                    pixmap = QPixmap()
+                    pixmap.loadFromData(img_bytes.read())
+                else:
+                    # Fallback to full image if crop calculation failed
+                    pixmap = ImageLoader.load_pixmap(self.image_path)
+
+            except Exception as e:
+                print(f"Error loading cropped image: {e}")
+                # Fallback to full image on error
+                pixmap = ImageLoader.load_pixmap(self.image_path)
+        else:
+            # Load full image
+            pixmap = ImageLoader.load_pixmap(self.image_path)
+
         if not pixmap.isNull():
             # Calculate zoom to fit image inside window
             screen = QApplication.primaryScreen().geometry()

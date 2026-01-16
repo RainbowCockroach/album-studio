@@ -32,7 +32,7 @@ class ImageGrid(QWidget):
     image_clicked = pyqtSignal(object)  # Emits ImageItem
     image_double_clicked = pyqtSignal(object)  # Emits ImageItem
     image_selected = pyqtSignal(object)  # Emits ImageItem when right-clicked for selection
-    image_preview_requested = pyqtSignal(str)  # Emits file path for right double-click
+    image_preview_requested = pyqtSignal(object)  # Emits ImageItem for right double-click
 
     def __init__(self, config):
         super().__init__()
@@ -201,9 +201,9 @@ class ImageGrid(QWidget):
         # Emit signal for main window
         self.image_selected.emit(image_item)
 
-    def on_image_right_double_clicked(self, file_path: str):
+    def on_image_right_double_clicked(self, image_item):
         """Handle right double click on image - open image viewer dialog."""
-        self.image_preview_requested.emit(file_path)
+        self.image_preview_requested.emit(image_item)
 
     def get_current_selected_item(self):
         """Get the currently selected image (via right-click)."""
@@ -238,7 +238,7 @@ class ImageWidget(QFrame):
     clicked = pyqtSignal()
     double_clicked = pyqtSignal()
     right_clicked = pyqtSignal()  # Emits when right-clicked for selection
-    right_double_clicked = pyqtSignal(str)  # Emits file path for image viewer
+    right_double_clicked = pyqtSignal(object)  # Emits ImageItem for image viewer
 
     def __init__(self, image_item, thumbnail_size, load_immediately=True):
         super().__init__()
@@ -410,8 +410,8 @@ class ImageWidget(QFrame):
                 self.right_click_timer.stop()
                 # Set flag to ignore next single right click
                 self.right_double_click_flag = True
-                # Emit right double click signal with file path
-                self.right_double_clicked.emit(self.image_item.file_path)
+                # Emit right double click signal with ImageItem
+                self.right_double_clicked.emit(self.image_item)
 
     def enter_preview_mode(self, config):
         """Enter crop preview mode - show crop overlay."""
