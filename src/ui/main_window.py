@@ -1016,6 +1016,36 @@ class MainWindow(QMainWindow):
 
     # ==================== End Update Methods ====================
 
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        key = event.key()
+
+        # C key - Enter crop mode
+        if key == Qt.Key.Key_C:
+            # Only trigger if not already in preview mode
+            if not self.image_grid.preview_mode:
+                self.on_crop_requested()
+                event.accept()
+                return
+
+        # ESC key - Exit crop mode
+        elif key == Qt.Key.Key_Escape:
+            # Only trigger if in preview mode
+            if self.image_grid.preview_mode:
+                self.on_cancel_requested()
+                event.accept()
+                return
+
+        # F key - Find similar (if image is selected)
+        elif key == Qt.Key.Key_F:
+            if self.last_clicked_image:
+                self.on_find_similar_requested()
+                event.accept()
+                return
+
+        # If not handled, pass to parent
+        super().keyPressEvent(event)
+
     def closeEvent(self, event):
         """Handle window close event."""
         # Save current project
