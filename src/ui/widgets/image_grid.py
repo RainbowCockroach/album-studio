@@ -88,7 +88,7 @@ class ImageGrid(QWidget):
 
         for image_item in self.current_project.images:
             # Create image widget with placeholder (no immediate thumbnail loading)
-            image_widget = ImageWidget(image_item, self.thumbnail_size, load_immediately=False)
+            image_widget = ImageWidget(image_item, self.thumbnail_size, load_immediately=False, config=self.config)
             image_widget.clicked.connect(lambda item=image_item: self.on_image_clicked(item))
             image_widget.double_clicked.connect(lambda item=image_item: self.on_image_double_clicked(item))
             image_widget.right_clicked.connect(lambda item=image_item: self.on_image_right_clicked(item))
@@ -240,11 +240,12 @@ class ImageWidget(QFrame):
     right_clicked = pyqtSignal()  # Emits when right-clicked for selection
     right_double_clicked = pyqtSignal(object)  # Emits ImageItem for image viewer
 
-    def __init__(self, image_item, thumbnail_size, load_immediately=True):
+    def __init__(self, image_item, thumbnail_size, load_immediately=True, config=None):
         super().__init__()
         self.image_item = image_item
         self.thumbnail_size = thumbnail_size
         self.load_immediately = load_immediately
+        self.config = config
         self.click_timer = QTimer()
         self.click_timer.setSingleShot(True)
         self.click_timer.timeout.connect(self._handle_single_click)
@@ -344,8 +345,15 @@ class ImageWidget(QFrame):
         bg_style = "background-color: #e6f0ff;" if self.is_current_selected else ""
 
         if self.image_item.is_fully_tagged():
-            # Green border for fully tagged
-            border_color = "#0066cc" if self.is_current_selected else "green"
+            # Get color from config for fully tagged images (color is global per size ratio)
+            if self.config and self.image_item.size_tag:
+                size_color = self.config.get_size_color(self.image_item.size_tag)
+                if not size_color:
+                    size_color = "#4CAF50"  # Default green if not set
+            else:
+                size_color = "#4CAF50"  # Default green
+
+            border_color = "#0066cc" if self.is_current_selected else size_color
             self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
             tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}"
             self.tag_label.setText(tag_text)

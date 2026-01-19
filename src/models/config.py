@@ -1,8 +1,19 @@
+import colorsys
 import json
 import os
+import random
 import re
 from typing import Dict, List, Optional
 from ..utils.paths import get_config_dir, get_user_config_dir
+
+
+def generate_random_color() -> str:
+    """Generate a random saturated color as hex string."""
+    h = random.random()
+    s = 0.6 + random.random() * 0.4  # 60-100% saturation
+    v = 0.7 + random.random() * 0.2  # 70-90% brightness
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
 
 
 class Config:
@@ -21,9 +32,9 @@ class Config:
 
     def load_all(self):
         """Load all configuration files."""
-        self.load_size_groups()
+        self.load_settings()  # Load settings first (colors are stored here)
+        self.load_size_groups()  # Migration may add colors to settings
         self.load_sizes()  # Kept for backward compatibility
-        self.load_settings()
 
     def load_size_groups(self):
         """Load size group definitions from size_group.json with migration support."""
@@ -201,7 +212,8 @@ class Config:
 
     def add_size_to_group(self, size_group_name: str, size_ratio: str, alias: str):
         """Add size to a specific group with an alias.
-        Validates size_ratio format before adding."""
+        Validates size_ratio format before adding.
+        Auto-assigns a color if this is a new size ratio."""
         if not self.validate_size_id(size_ratio):
             raise ValueError(f"Invalid size ratio format: {size_ratio}. Must be 'NxM' (e.g., '9x6')")
 
@@ -217,8 +229,15 @@ class Config:
             if size["ratio"] == size_ratio:
                 return  # Size already exists, don't add duplicate
 
-        # Add the size
-        group_data["sizes"].append({"ratio": size_ratio, "alias": alias or size_ratio})
+        # Auto-assign color if this is a new size ratio (not seen before)
+        if not self.get_size_color(size_ratio):
+            self.set_size_color(size_ratio, generate_random_color())
+
+        # Add the size (color is stored globally in settings, not here)
+        group_data["sizes"].append({
+            "ratio": size_ratio,
+            "alias": alias or size_ratio
+        })
 
     def remove_size_from_group(self, size_group_name: str, size_ratio: str):
         """Remove size from a specific group."""
@@ -241,15 +260,37 @@ class Config:
                     size["alias"] = new_alias or size_ratio
                     break
 
+    def get_size_color(self, size_ratio: str) -> str:
+        """Get the color for a size ratio. Returns empty string if not set."""
+        colors = self.settings.get("size_colors", {})
+        return colors.get(size_ratio, "")
+
+    def set_size_color(self, size_ratio: str, color: str):
+        """Set the color for a size ratio."""
+        if "size_colors" not in self.settings:
+            self.settings["size_colors"] = {}
+        self.settings["size_colors"][size_ratio] = color
+
+    def get_all_size_colors(self) -> Dict[str, str]:
+        """Get all size colors as a dictionary."""
+        return self.settings.get("size_colors", {})
+
     def _migrate_size_group_data(self, data: dict) -> dict:
-        """Migrate old format to new format with 'ratio' field."""
+        """Migrate old format to new format with 'ratio' field.
+        Also migrates colors from size entries to settings (global per ratio)."""
         migrated = {}
+        colors_to_migrate = {}  # Collect colors to migrate to settings
+
         for group_name, sizes in data.items():
             if isinstance(sizes, list):
                 # Old format: list of size ratios (strings)
-                migrated[group_name] = {
-                    "sizes": [{"ratio": size, "alias": size} for size in sizes]
-                }
+                migrated_sizes = []
+                for size in sizes:
+                    migrated_sizes.append({"ratio": size, "alias": size})
+                    # Assign color if not already set
+                    if size not in colors_to_migrate:
+                        colors_to_migrate[size] = generate_random_color()
+                migrated[group_name] = {"sizes": migrated_sizes}
             elif isinstance(sizes, dict) and "sizes" in sizes:
                 # Migrate from "id" to "ratio" if needed
                 migrated_sizes = []
@@ -257,20 +298,40 @@ class Config:
                     if isinstance(size, dict):
                         # If using old "id" field, convert to "ratio"
                         if "id" in size and "ratio" not in size:
+                            ratio = size["id"]
                             migrated_sizes.append({
-                                "ratio": size["id"],
-                                "alias": size.get("alias", size["id"])
+                                "ratio": ratio,
+                                "alias": size.get("alias", ratio)
                             })
                         else:
-                            # Already using "ratio" field
-                            migrated_sizes.append(size)
+                            ratio = size["ratio"]
+                            migrated_sizes.append({
+                                "ratio": ratio,
+                                "alias": size.get("alias", ratio)
+                            })
+                        # Migrate color from size entry to global colors
+                        if "color" in size and ratio not in colors_to_migrate:
+                            colors_to_migrate[ratio] = size["color"]
+                        elif ratio not in colors_to_migrate:
+                            colors_to_migrate[ratio] = generate_random_color()
                     else:
                         # String format
                         migrated_sizes.append({"ratio": size, "alias": size})
+                        if size not in colors_to_migrate:
+                            colors_to_migrate[size] = generate_random_color()
                 migrated[group_name] = {"sizes": migrated_sizes}
             else:
                 # Unknown format: default to empty
                 migrated[group_name] = {"sizes": []}
+
+        # Migrate colors to settings (only if not already set)
+        if colors_to_migrate:
+            if "size_colors" not in self.settings:
+                self.settings["size_colors"] = {}
+            for ratio, color in colors_to_migrate.items():
+                if ratio not in self.settings["size_colors"]:
+                    self.settings["size_colors"][ratio] = color
+
         return migrated
 
     def get_comparison_directory(self) -> str:
@@ -327,5 +388,6 @@ class Config:
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
             "comparison_directory": "",  # Empty means use {workspace}/printed
             "size_costs": {},  # Maps size ratio (e.g., "5x7") to cost (number)
+            "size_colors": {},  # Maps size ratio (e.g., "5x7") to color (hex string)
             "pixels_per_unit": 100  # Pixels per unit for real-size preview (calibrated by user)
         }

@@ -3,10 +3,12 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox
+    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox, QColorDialog,
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QLocale
 from PyQt6.QtGui import QPainter, QColor, QPen
+from src.models.config import generate_random_color
 
 
 class ConfigDialog(QDialog):
@@ -357,7 +359,7 @@ class ConfigDialog(QDialog):
         self.sizes_list = QListWidget()
         layout.addWidget(self.sizes_list)
 
-        # Buttons for size management
+        # First row of buttons for size management
         btn_layout = QHBoxLayout()
 
         self.add_size_btn = QPushButton("Add Size")
@@ -373,6 +375,22 @@ class ConfigDialog(QDialog):
         btn_layout.addWidget(self.edit_alias_btn)
 
         layout.addLayout(btn_layout)
+
+        # Second row of buttons for color management
+        color_btn_layout = QHBoxLayout()
+
+        self.pick_color_btn = QPushButton("Pick Color")
+        self.pick_color_btn.clicked.connect(self.pick_size_color)
+        color_btn_layout.addWidget(self.pick_color_btn)
+
+        self.random_color_btn = QPushButton("Random Color")
+        self.random_color_btn.clicked.connect(self.randomize_size_color)
+        color_btn_layout.addWidget(self.random_color_btn)
+
+        color_btn_layout.addStretch()
+
+        layout.addLayout(color_btn_layout)
+
         panel.setLayout(layout)
         return panel
 
@@ -398,7 +416,7 @@ class ConfigDialog(QDialog):
         self.load_sizes_for_group(group_name)
 
     def load_sizes_for_group(self, group_name: str):
-        """Load sizes for the selected group."""
+        """Load sizes for the selected group with color indicators."""
         self.sizes_list.clear()
 
         if group_name not in self.working_copy_size_groups:
@@ -409,6 +427,8 @@ class ConfigDialog(QDialog):
             for size in group_data["sizes"]:
                 size_ratio = size["ratio"]
                 alias = size["alias"]
+                # Get color from global settings (per size ratio, not per group)
+                color = self.config.get_size_color(size_ratio) or "#4CAF50"
                 # Calculate ratio for display
                 try:
                     ratio = self.config.parse_size_ratio(size_ratio)
@@ -416,7 +436,9 @@ class ConfigDialog(QDialog):
                 except ValueError:
                     display_text = f"{alias} ({size_ratio}, invalid format)"
 
-                self.sizes_list.addItem(display_text)
+                item = QListWidgetItem(display_text)
+                item.setForeground(QColor(color))
+                self.sizes_list.addItem(item)
 
     def add_size_group(self):
         """Add a new size group."""
@@ -525,7 +547,11 @@ class ConfigDialog(QDialog):
                     )
                     return
 
-            # Add the size
+            # Auto-assign color if this is a new size ratio (color is global)
+            if not self.config.get_size_color(size_ratio):
+                self.config.set_size_color(size_ratio, generate_random_color())
+
+            # Add the size (color is stored globally in settings, not here)
             group_data["sizes"].append({"ratio": size_ratio, "alias": alias})
             self.load_sizes_for_group(group_name)
 
@@ -597,6 +623,50 @@ class ConfigDialog(QDialog):
                         break
 
                 self.load_sizes_for_group(group_name)
+
+    def pick_size_color(self):
+        """Open color dialog to pick a color for the selected size.
+        Color is global per size ratio (same color across all groups)."""
+        current_group = self.size_groups_list.currentItem()
+        current_size = self.sizes_list.currentItem()
+
+        if not current_group or not current_size:
+            QMessageBox.warning(self, "No Selection", "Please select a size to change its color.")
+            return
+
+        group_name = current_group.text()
+        size_text = current_size.text()
+        size_ratio = self._extract_size_ratio_from_display(size_text)
+
+        # Get current color from global settings
+        current_color = self.config.get_size_color(size_ratio) or "#4CAF50"
+
+        # Open color dialog
+        color = QColorDialog.getColor(QColor(current_color), self, f"Pick Color for Size '{size_ratio}'")
+        if color.isValid():
+            new_color = color.name()
+            # Update the color in global settings (applies to all groups with this size)
+            self.config.set_size_color(size_ratio, new_color)
+            self.load_sizes_for_group(group_name)
+
+    def randomize_size_color(self):
+        """Generate a random color for the selected size.
+        Color is global per size ratio (same color across all groups)."""
+        current_group = self.size_groups_list.currentItem()
+        current_size = self.sizes_list.currentItem()
+
+        if not current_group or not current_size:
+            QMessageBox.warning(self, "No Selection", "Please select a size to randomize its color.")
+            return
+
+        group_name = current_group.text()
+        size_text = current_size.text()
+        size_ratio = self._extract_size_ratio_from_display(size_text)
+
+        # Generate random color and update global settings
+        new_color = generate_random_color()
+        self.config.set_size_color(size_ratio, new_color)
+        self.load_sizes_for_group(group_name)
 
     def _extract_size_ratio_from_display(self, display_text: str) -> str:
         """Extract size ratio from display text like 'alias (9x6, ratio: 1.50)'."""
@@ -696,7 +766,7 @@ class AddSizeDialog(QDialog):
         layout.addWidget(self.alias_input)
 
         # Info label
-        info_label = QLabel("Note: Size ratio must follow NxM pattern (e.g., 9x6)")
+        info_label = QLabel("Note: Size ratio must follow NxM pattern (e.g., 9x6)\nColor is auto-assigned and can be changed later.")
         info_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addWidget(info_label)
 
