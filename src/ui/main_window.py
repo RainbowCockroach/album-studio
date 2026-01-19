@@ -559,71 +559,75 @@ class MainWindow(QMainWindow):
         """Handle rename request from detail panel."""
         if not image_item or not self.current_project:
             return
-        
+
         import os
-        from PyQt6.QtWidgets import QInputDialog
-        
-        # Get current filename
+        from .dialogs import DateRenameDialog
+        from ..services.image_processor import ImageProcessor
+
+        # Get current filename and directory
         current_filename = os.path.basename(image_item.file_path)
         current_dir = os.path.dirname(image_item.file_path)
-        
-        # Show input dialog
-        new_filename, ok = QInputDialog.getText(
-            self,
-            "Rename Image",
-            "Enter new filename:",
-            text=current_filename
-        )
-        
-        if not ok or not new_filename:
+
+        # Get EXIF date if not already loaded
+        exif_date = image_item.date_taken
+        if exif_date is None:
+            exif_date = ImageProcessor.read_exif_date(image_item.file_path)
+            image_item.date_taken = exif_date  # Cache it
+
+        # Show date picker dialog
+        dialog = DateRenameDialog(current_filename, exif_date, self)
+        if dialog.exec() != DateRenameDialog.DialogCode.Accepted:
             return
-        
-        # Validate filename
-        new_filename = new_filename.strip()
-        if not new_filename:
-            QMessageBox.warning(self, "Invalid Filename", "Filename cannot be empty.")
-            return
-        
-        # Ensure extension is preserved if not provided
-        _, current_ext = os.path.splitext(current_filename)
-        _, new_ext = os.path.splitext(new_filename)
-        if not new_ext:
-            new_filename += current_ext
-        
-        # Check if filename already exists
+
+        # Get selected date and generate filename
+        selected_datetime = dialog.get_selected_datetime()
+        base_name = selected_datetime.strftime("%Y%m%d_000000")
+
+        # Get file extension
+        _, ext = os.path.splitext(image_item.file_path)
+        new_filename = f"{base_name}{ext}"
         new_path = os.path.join(current_dir, new_filename)
-        if os.path.exists(new_path) and new_path != image_item.file_path:
-            QMessageBox.warning(
+
+        # Handle duplicates by adding a counter
+        counter = 1
+        while os.path.exists(new_path) and new_path != image_item.file_path:
+            new_filename = f"{base_name}_{counter}{ext}"
+            new_path = os.path.join(current_dir, new_filename)
+            counter += 1
+
+        # Skip if already has the correct name
+        if image_item.file_path == new_path:
+            QMessageBox.information(
                 self,
-                "File Exists",
-                f"A file named '{new_filename}' already exists."
+                "No Change",
+                "The image already has this filename."
             )
             return
-        
+
         # Rename the file
         try:
             os.rename(image_item.file_path, new_path)
-            
+
             # Update image item
             image_item.file_path = new_path
             image_item.clear_thumbnail_cache()  # Clear cached thumbnail
-            
+
             # Save project
             self.project_manager.save_project(self.current_project)
-            
+
             # Refresh grid to show new filename
             self.image_grid.load_images()
-            
+
             # Update detail panel if visible
             if self.detail_panel.isVisible():
                 self.update_detail_panel(image_item)
-            
+
             QMessageBox.information(
                 self,
                 "Rename Successful",
                 f"File renamed to '{new_filename}'"
             )
-            
+
         except Exception as e:
             QMessageBox.critical(
                 self,
