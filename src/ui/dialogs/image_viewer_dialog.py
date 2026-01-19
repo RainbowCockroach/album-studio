@@ -4,6 +4,7 @@ from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QScrollArea, QApplicat
 from PyQt6.QtCore import Qt, QPoint
 from PyQt6.QtGui import QPixmap, QWheelEvent, QMouseEvent, QKeyEvent
 from src.utils.image_loader import ImageLoader
+from src.models.config import Config
 
 
 class ZoomableImageLabel(QLabel):
@@ -114,6 +115,11 @@ class ImageViewerDialog(QDialog):
         self.image_item = image_item
         self.config = config
 
+        # Real-size preview mode
+        self.real_size_mode = False
+        self.can_use_real_size = self._check_real_size_available()
+        self.loaded_pixmap = None  # Store the loaded pixmap for mode switching
+
         self.setWindowTitle("Image Viewer")
         self.setWindowFlags(
             Qt.WindowType.Dialog |
@@ -164,11 +170,12 @@ class ImageViewerDialog(QDialog):
 
         layout.addWidget(self.scroll_area)
 
-        # Hint label
-        hint_label = QLabel("Scroll to zoom | Drag to pan | Click outside or press ESC to close")
-        hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        hint_label.setStyleSheet("color: white; font-size: 12px; padding: 10px;")
-        layout.addWidget(hint_label)
+        # Hint label (will be updated based on mode)
+        self.hint_label = QLabel()
+        self.hint_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.hint_label.setStyleSheet("color: white; font-size: 12px; padding: 10px;")
+        self._update_hint_label()
+        layout.addWidget(self.hint_label)
 
         self.setLayout(layout)
 
@@ -225,6 +232,9 @@ class ImageViewerDialog(QDialog):
             pixmap = ImageLoader.load_pixmap(self.image_path)
 
         if not pixmap.isNull():
+            # Store pixmap for mode switching
+            self.loaded_pixmap = pixmap
+
             # Calculate zoom to fit image inside window
             screen = QApplication.primaryScreen().geometry()
             # Account for margins (20px each side) and hint label (~40px)
@@ -238,12 +248,104 @@ class ImageViewerDialog(QDialog):
 
             self.image_label.set_image(pixmap, initial_zoom)
 
-    def keyPressEvent(self, event: Optional[QKeyEvent]):
-        """Close dialog on ESC key."""
-        if event and event.key() == Qt.Key.Key_Escape:
-            self.close()
+    def _check_real_size_available(self) -> bool:
+        """Check if real-size preview is available for this image."""
+        # Must have image_item, config, and a valid size tag
+        if self.image_item is None or self.config is None:
+            return False
+        if not self.image_item.is_fully_tagged():
+            return False
+        # Verify size_tag can be parsed
+        try:
+            Config.parse_size_dimensions(self.image_item.size_tag)
+            return True
+        except ValueError:
+            return False
+
+    def _update_hint_label(self):
+        """Update the hint label based on current mode."""
+        base_hint = "Scroll to zoom | Drag to pan | Click outside or ESC to close"
+
+        if self.can_use_real_size:
+            if self.real_size_mode:
+                # Get dimensions for display
+                try:
+                    width, height = Config.parse_size_dimensions(self.image_item.size_tag)
+                    ppu = self.config.get_setting("pixels_per_unit", 100)
+                    real_width = width * ppu
+                    real_height = height * ppu
+                    mode_info = f"[REAL SIZE: {width}x{height} units = {real_width}x{real_height}px]"
+                except ValueError:
+                    mode_info = "[REAL SIZE MODE]"
+                self.hint_label.setText(f"{mode_info} | Press R for normal view | {base_hint}")
+            else:
+                self.hint_label.setText(f"[Normal View] | Press R for real-size preview | {base_hint}")
         else:
-            super().keyPressEvent(event)
+            self.hint_label.setText(base_hint)
+
+    def toggle_real_size_mode(self):
+        """Toggle between normal and real-size preview modes."""
+        if not self.can_use_real_size:
+            return
+
+        self.real_size_mode = not self.real_size_mode
+        self._update_hint_label()
+
+        if self.loaded_pixmap and not self.loaded_pixmap.isNull():
+            if self.real_size_mode:
+                self._apply_real_size_zoom()
+            else:
+                # Restore fit-to-window zoom
+                screen = QApplication.primaryScreen().geometry()
+                max_width = int(screen.width() * 0.9) - 40
+                max_height = int(screen.height() * 0.9) - 80
+
+                width_ratio = max_width / self.loaded_pixmap.width()
+                height_ratio = max_height / self.loaded_pixmap.height()
+                initial_zoom = min(width_ratio, height_ratio, 1.0)
+
+                self.image_label.set_image(self.loaded_pixmap, initial_zoom)
+
+    def _apply_real_size_zoom(self):
+        """Apply zoom level for real-size preview."""
+        if not self.loaded_pixmap or self.loaded_pixmap.isNull():
+            return
+        if not self.image_item or not self.config:
+            return
+
+        try:
+            # Get size dimensions from tag (e.g., "9x6" -> (9, 6))
+            width_units, height_units = Config.parse_size_dimensions(self.image_item.size_tag)
+
+            # Get pixels per unit from config
+            ppu = self.config.get_setting("pixels_per_unit", 100)
+
+            # Calculate target display size in pixels
+            target_width = width_units * ppu
+            target_height = height_units * ppu
+
+            # Calculate zoom factor based on the loaded pixmap dimensions
+            # The pixmap is already cropped to the correct aspect ratio
+            zoom_factor = target_width / self.loaded_pixmap.width()
+
+            # Apply the zoom
+            self.image_label.set_image(self.loaded_pixmap, zoom_factor)
+
+        except (ValueError, ZeroDivisionError) as e:
+            print(f"Error applying real-size zoom: {e}")
+            # Fall back to normal view
+            self.real_size_mode = False
+            self._update_hint_label()
+
+    def keyPressEvent(self, event: Optional[QKeyEvent]):
+        """Handle keyboard shortcuts: ESC to close, R to toggle real-size mode."""
+        if event:
+            if event.key() == Qt.Key.Key_Escape:
+                self.close()
+            elif event.key() == Qt.Key.Key_R:
+                self.toggle_real_size_mode()
+            else:
+                super().keyPressEvent(event)
 
     def mousePressEvent(self, event: Optional[QMouseEvent]):
         """Close dialog when clicking outside the image area."""

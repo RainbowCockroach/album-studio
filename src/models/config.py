@@ -142,6 +142,19 @@ class Config:
         return width / height
 
     @staticmethod
+    def parse_size_dimensions(size_id: str) -> tuple:
+        """Parse dimensions from size ID (e.g., '9x6' -> (9, 6)).
+        Returns (width, height) as integers.
+        Raises ValueError if format is invalid.
+        """
+        match = re.match(r'(\d+)x(\d+)', size_id, re.IGNORECASE)
+        if not match:
+            raise ValueError(f"Invalid size ID format: {size_id}. Must be 'NxM' (e.g., '9x6')")
+        width = int(match.group(1))
+        height = int(match.group(2))
+        return (width, height)
+
+    @staticmethod
     def validate_size_id(size_id: str) -> bool:
         """Validate size ID follows NxM pattern."""
         return bool(re.match(r'^\d+x\d+$', size_id, re.IGNORECASE))
@@ -313,5 +326,6 @@ class Config:
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
             "comparison_directory": "",  # Empty means use {workspace}/printed
-            "size_costs": {}  # Maps size ratio (e.g., "5x7") to cost (number)
+            "size_costs": {},  # Maps size ratio (e.g., "5x7") to cost (number)
+            "pixels_per_unit": 100  # Pixels per unit for real-size preview (calibrated by user)
         }

@@ -3,9 +3,10 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDoubleSpinBox, QTabWidget
+    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox
 )
 from PyQt6.QtCore import Qt, QLocale
+from PyQt6.QtGui import QPainter, QColor, QPen
 
 
 class ConfigDialog(QDialog):
@@ -50,6 +51,10 @@ class ConfigDialog(QDialog):
         # Tab 3: Cost settings
         cost_tab = self.create_cost_tab()
         tab_widget.addTab(cost_tab, "Cost")
+
+        # Tab 4: Screen Calibration
+        calibration_tab = self.create_calibration_tab()
+        tab_widget.addTab(calibration_tab, "Screen Calibration")
 
         main_layout.addWidget(tab_widget)
 
@@ -226,6 +231,87 @@ class ConfigDialog(QDialog):
             cost_spinbox.setValue(current_costs.get(size_ratio, 0))
             self.costs_table.setCellWidget(row, 1, cost_spinbox)
             self.cost_spinboxes[size_ratio] = cost_spinbox
+
+    def create_calibration_tab(self):
+        """Create screen calibration tab for real-size preview."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # Title and instruction
+        title_label = QLabel("Screen Calibration for Real-Size Preview")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title_label)
+
+        instruction_label = QLabel(
+            "Adjust the line below until it matches one unit on your ruler.\n"
+            "This calibration is used to preview images at their real print size.\n"
+            "For example, if your sizes are in inches, adjust until the line equals 1 inch."
+        )
+        instruction_label.setStyleSheet("color: #666; margin-bottom: 10px;")
+        instruction_label.setWordWrap(True)
+        layout.addWidget(instruction_label)
+
+        # Calibration line widget
+        self.calibration_line = CalibrationLineWidget()
+        current_ppu = self.config.get_setting("pixels_per_unit", 100)
+        self.calibration_line.set_length(current_ppu)
+        layout.addWidget(self.calibration_line)
+
+        # Control buttons and display
+        control_layout = QHBoxLayout()
+
+        # Decrease buttons
+        decrease_10_btn = QPushButton("◀◀ -10")
+        decrease_10_btn.clicked.connect(lambda: self.adjust_calibration(-10))
+        control_layout.addWidget(decrease_10_btn)
+
+        decrease_1_btn = QPushButton("◀ -1")
+        decrease_1_btn.clicked.connect(lambda: self.adjust_calibration(-1))
+        control_layout.addWidget(decrease_1_btn)
+
+        # Current value display with spinbox
+        self.calibration_spinbox = QSpinBox()
+        self.calibration_spinbox.setRange(10, 1000)
+        self.calibration_spinbox.setValue(current_ppu)
+        self.calibration_spinbox.setSuffix(" px")
+        self.calibration_spinbox.valueChanged.connect(self.on_calibration_spinbox_changed)
+        control_layout.addWidget(self.calibration_spinbox)
+
+        # Increase buttons
+        increase_1_btn = QPushButton("+1 ▶")
+        increase_1_btn.clicked.connect(lambda: self.adjust_calibration(1))
+        control_layout.addWidget(increase_1_btn)
+
+        increase_10_btn = QPushButton("+10 ▶▶")
+        increase_10_btn.clicked.connect(lambda: self.adjust_calibration(10))
+        control_layout.addWidget(increase_10_btn)
+
+        layout.addLayout(control_layout)
+
+        # Info label
+        info_label = QLabel(
+            "The line length in pixels represents one unit of measurement.\n"
+            "Use keyboard arrow keys (← →) for fine adjustment when buttons are focused."
+        )
+        info_label.setStyleSheet("color: #888; font-size: 11px; margin-top: 15px;")
+        layout.addWidget(info_label)
+
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
+
+    def adjust_calibration(self, delta: int):
+        """Adjust the calibration line length."""
+        current = self.calibration_line.length
+        new_value = max(10, min(1000, current + delta))
+        self.calibration_line.set_length(new_value)
+        self.calibration_spinbox.setValue(new_value)
+
+    def on_calibration_spinbox_changed(self, value: int):
+        """Handle spinbox value change."""
+        self.calibration_line.set_length(value)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -535,6 +621,9 @@ class ConfigDialog(QDialog):
         for size_ratio, spinbox in self.cost_spinboxes.items():
             self.config.set_size_cost(size_ratio, spinbox.value())
 
+        # Save screen calibration (pixels per unit)
+        self.config.set_setting("pixels_per_unit", self.calibration_spinbox.value())
+
         self.config.save_settings()
 
         # Calculate deletions
@@ -672,3 +761,53 @@ class AddSizeDialog(QDialog):
         size_ratio = self.size_ratio_input.text().strip()
         alias = self.alias_input.text().strip() or size_ratio
         return size_ratio, alias
+
+
+class CalibrationLineWidget(QFrame):
+    """Widget that displays a horizontal line for screen calibration."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.length = 100  # Length in pixels
+        self.setMinimumHeight(80)
+        self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        self.setStyleSheet("background-color: white;")
+
+    def set_length(self, length: int):
+        """Set the length of the calibration line."""
+        self.length = max(10, min(1000, length))
+        self.update()
+
+    def paintEvent(self, event):
+        """Draw the calibration line."""
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Calculate center position
+        center_y = self.height() // 2
+        start_x = (self.width() - self.length) // 2
+        end_x = start_x + self.length
+
+        # Draw the main line
+        pen = QPen(QColor(0, 0, 0))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawLine(start_x, center_y, end_x, center_y)
+
+        # Draw end markers (small vertical lines)
+        marker_height = 15
+        painter.drawLine(start_x, center_y - marker_height, start_x, center_y + marker_height)
+        painter.drawLine(end_x, center_y - marker_height, end_x, center_y + marker_height)
+
+        # Draw middle marker
+        mid_x = (start_x + end_x) // 2
+        painter.drawLine(mid_x, center_y - marker_height // 2, mid_x, center_y + marker_height // 2)
+
+        # Draw length label
+        painter.setPen(QColor(100, 100, 100))
+        label_text = f"{self.length} px = 1 unit"
+        painter.drawText(start_x, center_y + 30, label_text)
+
+        painter.end()
