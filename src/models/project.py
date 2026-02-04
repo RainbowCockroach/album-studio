@@ -98,14 +98,15 @@ class Project:
             }
 
             for img in self.images:
-                # Only save images that have tags or crop data
-                if img.has_tags() or img.crop_box or img.is_cropped:
+                # Only save images that have tags, crop data, or date stamp flag
+                if img.has_tags() or img.crop_box or img.is_cropped or img.add_date_stamp:
                     data["images"].append({
                         "file_path": img.file_path,
                         "album_tag": img.album_tag,
                         "size_tag": img.size_tag,
                         "is_cropped": img.is_cropped,
-                        "crop_box": img.crop_box
+                        "crop_box": img.crop_box,
+                        "add_date_stamp": img.add_date_stamp
                     })
 
             # Save to file
@@ -141,6 +142,7 @@ class Project:
                     img.size_tag = saved_data.get("size_tag")
                     img.is_cropped = saved_data.get("is_cropped", False)
                     img.crop_box = saved_data.get("crop_box")
+                    img.add_date_stamp = saved_data.get("add_date_stamp", False)
                     loaded_count += 1
 
             print(f"Loaded data for {loaded_count} images in project '{self.name}'")
