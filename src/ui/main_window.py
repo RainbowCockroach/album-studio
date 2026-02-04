@@ -68,7 +68,9 @@ class MainWindow(QMainWindow):
         migrate_old_data()
 
         self.config = Config()
-        self.project_manager = ProjectManager()
+        # Get workspace directory from config to determine data location
+        workspace_directory = self.config.get_setting("workspace_directory", "")
+        self.project_manager = ProjectManager(workspace_directory=workspace_directory if workspace_directory else None)
         self.crop_service = CropService(self.config)
         self.similarity_service = None  # Lazy load when needed
         self.current_project = None
@@ -140,6 +142,9 @@ class MainWindow(QMainWindow):
         self.project_toolbar.add_photo_requested.connect(self.on_add_photo_requested)
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
+        self.project_toolbar.date_stamp_mode_toggled.connect(self.on_date_stamp_mode_toggled)
+        self.project_toolbar.date_stamp_confirmed.connect(self.on_date_stamp_confirmed)
+        self.project_toolbar.select_all_toggled.connect(self.on_select_all_requested)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
         self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
 
@@ -151,6 +156,7 @@ class MainWindow(QMainWindow):
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
         self.tag_panel.rotate_requested.connect(self.on_rotate_requested)
+        self.tag_panel.preview_stamp_requested.connect(self.on_preview_stamp_requested)
 
         # Detail panel
         self.detail_panel.rename_requested.connect(self.on_rename_requested)
@@ -412,9 +418,23 @@ class MainWindow(QMainWindow):
 
     def on_delete_mode_toggled(self, enabled: bool):
         """Handle delete mode toggle."""
-        self.image_grid.toggle_selection_mode(enabled)
-        
+        self.image_grid.toggle_selection_mode(enabled, mode='delete')
+
         if not enabled:
+            # Just exit mode, clear selection
+            pass
+
+    def on_date_stamp_mode_toggled(self, enabled: bool):
+        """Handle date stamp selection mode toggle."""
+        self.image_grid.toggle_selection_mode(enabled, mode='date_stamp')
+
+        if enabled:
+            # Update select all button state based on pre-selected items
+            if self.current_project:
+                selected_count = len(self.image_grid.selected_items)
+                total_count = len(self.current_project.images)
+                self.project_toolbar.update_select_all_state(selected_count == total_count and total_count > 0)
+        else:
             # Just exit mode, clear selection
             pass
 
@@ -559,71 +579,75 @@ class MainWindow(QMainWindow):
         """Handle rename request from detail panel."""
         if not image_item or not self.current_project:
             return
-        
+
         import os
-        from PyQt6.QtWidgets import QInputDialog
-        
-        # Get current filename
+        from .dialogs import DateRenameDialog
+        from ..services.image_processor import ImageProcessor
+
+        # Get current filename and directory
         current_filename = os.path.basename(image_item.file_path)
         current_dir = os.path.dirname(image_item.file_path)
-        
-        # Show input dialog
-        new_filename, ok = QInputDialog.getText(
-            self,
-            "Rename Image",
-            "Enter new filename:",
-            text=current_filename
-        )
-        
-        if not ok or not new_filename:
+
+        # Get EXIF date if not already loaded
+        exif_date = image_item.date_taken
+        if exif_date is None:
+            exif_date = ImageProcessor.read_exif_date(image_item.file_path)
+            image_item.date_taken = exif_date  # Cache it
+
+        # Show date picker dialog
+        dialog = DateRenameDialog(current_filename, exif_date, self)
+        if dialog.exec() != DateRenameDialog.DialogCode.Accepted:
             return
-        
-        # Validate filename
-        new_filename = new_filename.strip()
-        if not new_filename:
-            QMessageBox.warning(self, "Invalid Filename", "Filename cannot be empty.")
-            return
-        
-        # Ensure extension is preserved if not provided
-        _, current_ext = os.path.splitext(current_filename)
-        _, new_ext = os.path.splitext(new_filename)
-        if not new_ext:
-            new_filename += current_ext
-        
-        # Check if filename already exists
+
+        # Get selected date and generate filename
+        selected_datetime = dialog.get_selected_datetime()
+        base_name = selected_datetime.strftime("%Y%m%d_000000")
+
+        # Get file extension
+        _, ext = os.path.splitext(image_item.file_path)
+        new_filename = f"{base_name}{ext}"
         new_path = os.path.join(current_dir, new_filename)
-        if os.path.exists(new_path) and new_path != image_item.file_path:
-            QMessageBox.warning(
+
+        # Handle duplicates by adding a counter
+        counter = 1
+        while os.path.exists(new_path) and new_path != image_item.file_path:
+            new_filename = f"{base_name}_{counter}{ext}"
+            new_path = os.path.join(current_dir, new_filename)
+            counter += 1
+
+        # Skip if already has the correct name
+        if image_item.file_path == new_path:
+            QMessageBox.information(
                 self,
-                "File Exists",
-                f"A file named '{new_filename}' already exists."
+                "No Change",
+                "The image already has this filename."
             )
             return
-        
+
         # Rename the file
         try:
             os.rename(image_item.file_path, new_path)
-            
+
             # Update image item
             image_item.file_path = new_path
             image_item.clear_thumbnail_cache()  # Clear cached thumbnail
-            
+
             # Save project
             self.project_manager.save_project(self.current_project)
-            
+
             # Refresh grid to show new filename
             self.image_grid.load_images()
-            
+
             # Update detail panel if visible
             if self.detail_panel.isVisible():
                 self.update_detail_panel(image_item)
-            
+
             QMessageBox.information(
                 self,
                 "Rename Successful",
                 f"File renamed to '{new_filename}'"
             )
-            
+
         except Exception as e:
             QMessageBox.critical(
                 self,
@@ -871,6 +895,114 @@ class MainWindow(QMainWindow):
                 f"Failed to rotate image: {self.last_clicked_image.file_path}"
             )
 
+    def on_select_all_requested(self):
+        """Handle select all button click - toggle selection of all images."""
+        if not self.current_project:
+            return
+
+        # Check if all are currently selected
+        selected_count = len(self.image_grid.selected_items)
+        total_count = len(self.current_project.images)
+
+        if selected_count == total_count:
+            # All selected, deselect all
+            self.image_grid.deselect_all()
+            self.project_toolbar.update_select_all_state(False)
+        else:
+            # Not all selected, select all
+            self.image_grid.select_all()
+            self.project_toolbar.update_select_all_state(True)
+
+    def on_date_stamp_confirmed(self):
+        """Handle date stamp confirmation - mark selected images for date stamping."""
+        if not self.current_project:
+            return
+
+        selected_items = self.image_grid.get_selected_items()
+        selected_items_set = set(selected_items)
+
+        # Track changes for the message
+        added_count = 0
+        removed_count = 0
+
+        # Update all images in the project
+        for image_item in self.current_project.images:
+            if image_item in selected_items_set:
+                # Image is selected - ensure flag is set
+                if not image_item.add_date_stamp:
+                    added_count += 1
+                image_item.add_date_stamp = True
+            else:
+                # Image is not selected - remove flag if it was previously set
+                if image_item.add_date_stamp:
+                    removed_count += 1
+                    image_item.add_date_stamp = False
+
+        # Save project to persist changes
+        self.project_manager.save_project(self.current_project)
+
+        # Refresh display to show date stamp indicators
+        self.image_grid.refresh_display()
+
+        # Exit date stamp mode
+        self.project_toolbar.toggle_date_stamp_mode(False)
+
+        # Show informative message
+        if added_count > 0 or removed_count > 0:
+            message_parts = []
+            if added_count > 0:
+                message_parts.append(f"Added date stamp to {added_count} image(s)")
+            if removed_count > 0:
+                message_parts.append(f"Removed date stamp from {removed_count} image(s)")
+
+            QMessageBox.information(
+                self,
+                "Date Stamp Updated",
+                "\n".join(message_parts) + "\n\nDate stamps will be applied when you export/crop images."
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "No Changes",
+                "No changes made to date stamp markers."
+            )
+
+    def on_preview_stamp_requested(self):
+        """Handle preview stamp button click - open image viewer with date stamp preview."""
+        if not self.current_project:
+            return
+
+        # Get the currently selected image (right-click selection)
+        selected_image = self.image_grid.get_current_selected_item()
+
+        if not selected_image:
+            QMessageBox.information(
+                self,
+                "No Image Selected",
+                "Please right-click on an image to select it first, then click 'Preview Stamp'.\n\n"
+                "The preview will show how the date stamp will appear on that image."
+            )
+            return
+
+        if not selected_image.add_date_stamp:
+            QMessageBox.information(
+                self,
+                "Date Stamp Not Enabled",
+                f"The selected image is not marked for date stamping.\n\n"
+                "Please select the image and click 'Add Date Stamp' first, then preview."
+            )
+            return
+
+        # Open image viewer with date stamp preview
+        from .dialogs.image_viewer_dialog import ImageViewerDialog
+        dialog = ImageViewerDialog(
+            selected_image.file_path,
+            parent=self,
+            image_item=selected_image,
+            config=self.config
+        )
+        dialog.exec()
+
     # ==================== Update Methods ====================
 
     def _check_for_updates(self):
@@ -1015,6 +1147,36 @@ class MainWindow(QMainWindow):
             self.project_toolbar.show_update_available(self._pending_release.version)
 
     # ==================== End Update Methods ====================
+
+    def keyPressEvent(self, event):
+        """Handle keyboard shortcuts."""
+        key = event.key()
+
+        # C key - Enter crop mode
+        if key == Qt.Key.Key_C:
+            # Only trigger if not already in preview mode
+            if not self.image_grid.preview_mode:
+                self.on_crop_requested()
+                event.accept()
+                return
+
+        # ESC key - Exit crop mode
+        elif key == Qt.Key.Key_Escape:
+            # Only trigger if in preview mode
+            if self.image_grid.preview_mode:
+                self.on_cancel_requested()
+                event.accept()
+                return
+
+        # F key - Find similar (if image is selected)
+        elif key == Qt.Key.Key_F:
+            if self.last_clicked_image:
+                self.on_find_similar_requested()
+                event.accept()
+                return
+
+        # If not handled, pass to parent
+        super().keyPressEvent(event)
 
     def closeEvent(self, event):
         """Handle window close event."""

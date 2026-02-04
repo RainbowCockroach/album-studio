@@ -59,11 +59,12 @@ The typical user workflow is:
 2. **Load Images**: Click "Refresh & Rename Images" to scan input folder and auto-rename by EXIF date
 3. **Tag Images**: Select size group and size from dropdowns, then click images to tag them (double-click to clear tags)
 4. **Preview Crops** (optional): Click "Preview & Adjust Crops" to see and adjust crop positions before final cropping
-5. **Crop Images**: Click "Crop All Tagged Images" to batch process all tagged images
-6. **Find Similar**: Select an image, click "Find similar" to search for visually similar images using AI
-7. **Rotate Images** (as needed): Select an image, click "Rotate" to rotate 90° clockwise
-8. **Archive** (when done): Creates thumbnails → `workspace/printed/`, zips output, deletes project folders
-9. **Configure Size Groups** (as needed): Click "Configure Size Groups" to add/remove/rename size groups and their sizes
+5. **Add Date Stamps** (optional): Click "Add Date Stamp" to enter selection mode, select images, then click "Mark to set date stamp" to mark selected images for vintage-style date stamping during export; click "Preview Stamp" to see stamp in full-size viewer
+6. **Crop Images**: Click "Crop All Tagged Images" to batch process all tagged images (applies date stamps if enabled)
+7. **Find Similar**: Select an image, click "Find similar" to search for visually similar images using AI
+8. **Rotate Images** (as needed): Select an image, click "Rotate" to rotate 90° clockwise
+9. **Archive** (when done): Creates thumbnails → `workspace/printed/`, zips output, deletes project folders
+10. **Configure Size Groups** (as needed): Click "Configure Size Groups" to add/remove/rename size groups and their sizes
 
 ## Architecture
 
@@ -83,6 +84,7 @@ The codebase follows a clean separation of concerns:
 - `ImageProcessor`: EXIF date reading, auto-rename by date
 - `CropService`: Smart cropping using smartcrop library based on size dimensions
 - `ImageSimilarityService`: ResNet50-based deep learning similarity search with caching
+- `DateStampService`: Applies vintage film camera-style date stamps to images during export
 
 **UI** (`src/ui/`):
 
@@ -92,9 +94,10 @@ The codebase follows a clean separation of concerns:
 - `widgets/toolbar_bottom.py` (`ToolbarBottom`): Bottom bar with size_group/size dropdowns + action buttons
 - `widgets/detail_panel.py` (`DetailPanel`): Left sidebar showing EXIF info and image details
 - `widgets/crop_overlay.py` (`CropOverlay`): Draggable crop rectangle overlay for preview mode
+- `widgets/date_stamp_preview_overlay.py` (`DateStampPreviewOverlay`): Overlay showing date stamp preview on thumbnails
 - `dialogs/ConfigDialog`: GUI for managing size groups, workspace, and comparison directories
 - `dialogs/FindSimilarDialog`: UI for similarity search with adjustable threshold and result count
-- `dialogs/ImageViewerDialog`: Full-size image viewer dialog
+- `dialogs/ImageViewerDialog`: Full-size image viewer dialog with date stamp preview support
 
 ### Signal/Slot Architecture
 
@@ -107,7 +110,9 @@ ProjectToolbar
   ├─ archive_requested(name) → MainWindow.on_archive_requested()
   ├─ add_photo_requested() → MainWindow.on_add_photo_requested()
   ├─ delete_mode_toggled(bool) → MainWindow.on_delete_mode_toggled()
-  └─ delete_confirmed() → MainWindow.on_delete_confirmed()
+  ├─ delete_confirmed() → MainWindow.on_delete_confirmed()
+  ├─ date_stamp_mode_toggled(bool) → MainWindow.on_date_stamp_mode_toggled()
+  └─ date_stamp_confirmed() → MainWindow.on_date_stamp_confirmed()
 
 ImageGrid
   ├─ image_clicked(ImageItem) → MainWindow.on_image_clicked()  # Apply tags
@@ -123,7 +128,8 @@ ToolbarBottom
   ├─ config_requested() → MainWindow.on_config_requested()
   ├─ detail_toggled(bool) → DetailPanel.setVisible()
   ├─ find_similar_requested() → MainWindow.on_find_similar_requested()
-  └─ rotate_requested() → MainWindow.on_rotate_requested()
+  ├─ rotate_requested() → MainWindow.on_rotate_requested()
+  └─ preview_stamp_requested() → MainWindow.on_preview_stamp_requested()
 
 DetailPanel
   └─ rename_requested(ImageItem) → MainWindow.on_rename_requested()
@@ -160,8 +166,25 @@ All widget-to-widget communication goes through MainWindow - widgets never talk 
 6. User clicks "Crop All Tagged Images"
 7. `CropService.crop_project()` gets all fully-tagged images
 8. For each: `CropService.crop_image()` uses `crop_box` if set, otherwise smartcrop to find best crop
-9. Saves to `output_folder/{size_group}/{size}/{filename}.jpg`
-10. Marks `ImageItem.is_cropped = True`
+9. If image has `date_stamp` flag enabled, `DateStampService.apply_date_stamp()` overlays vintage date stamp
+10. Saves to `output_folder/{size_group}/{size}/{filename}.jpg`
+11. Marks `ImageItem.is_cropped = True`
+
+**Date stamping workflow:**
+
+1. User clicks "Add Date Stamp" button to enter selection mode
+2. `MainWindow.on_date_stamp_mode_toggled()` calls `ImageGrid.toggle_selection_mode(enabled, mode='date_stamp')`
+3. User clicks images to select them (green border indicates selection)
+4. User clicks "Mark to set date stamp" button to confirm
+5. `MainWindow.on_date_stamp_confirmed()` sets `ImageItem.add_date_stamp = True` for all selected images
+6. `ImageItem.add_date_stamp` flag saved to project_data.json, 📅 indicator appears on thumbnails
+7. User can click "Preview Stamp" to see full-size preview in `ImageViewerDialog`
+8. During crop operation, `DateStampService` applies multi-layer vintage stamp:
+   - Reads EXIF date metadata from image
+   - Calculates font size based on physical print dimensions (maintains consistent size across print sizes)
+   - Renders 5-layer stamp with glow effects: white halo → dark outline → outer glow → inner glow → main text
+   - Uses DSEG7 Classic font (bundled in `assets/fonts/`) for authentic digital display aesthetic
+9. Date format, position, color, and opacity configurable in `config/settings.json`
 
 **Similarity search workflow:**
 
@@ -209,7 +232,17 @@ Three JSON files in `config/`:
 }
 ```
 
-**`settings.json`**: App preferences (thumbnail size, grid columns, date format, supported file extensions, workspace/comparison directories)
+**`settings.json`**: App preferences (thumbnail size, grid columns, date format, supported file extensions, workspace/comparison directories, date stamp settings)
+
+Date stamp settings include:
+- `date_stamp_format`: Date format string (e.g., "'YY.MM.DD", "MM.DD.'YY")
+- `date_stamp_position`: Placement on image (bottom-right, bottom-left, top-right, top-left)
+- `date_stamp_color`: Hex color code (default: "#FF7700" for vintage orange)
+- `date_stamp_opacity`: Text opacity 0-100 (default: 90)
+- `date_stamp_glow_intensity`: Glow effect strength 0-100 (default: 80)
+- `date_stamp_margin`: Distance from edges in pixels (default: 30)
+- `date_stamp_physical_height`: Physical height in print units (default: 0.2)
+- `date_stamp_target_dpi`: Pixels per print unit for size calculation (default: 300)
 
 **Configuration Management:**
 
@@ -263,6 +296,15 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 - Feature extraction is expensive (~1-2 seconds per image), caching enables instant searches
 - Cache uses compressed numpy format (.npz) for efficient storage (~5-10x smaller than JSON)
 
+### Date Stamp Rendering
+
+- Uses multi-layer compositing for vintage film camera aesthetic
+- Font size automatically scales based on physical print dimensions to maintain consistent appearance across different print sizes
+- 5-layer rendering: white halo (dark backgrounds) → dark outline (light backgrounds) → outer glow → inner glow → main text
+- Gaussian blur used for glow effects (radius 40px for halo, 20px for outer glow, 2px for inner glow)
+- DSEG7 Classic font provides authentic digital display appearance (7-segment LED style)
+- All rendering done with PIL/Pillow for maximum compatibility and quality
+
 ## Common Issues
 
 **Images not displaying:**
@@ -311,6 +353,15 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 - Archive only processes images in output folder, not input folder
 - Archive workflow in `src/services/project_manager.py` `archive_project()` method
 
+**Date stamps not appearing:**
+
+- Verify `ImageItem.date_stamp` flag is True in project_data.json
+- Check DSEG7 font exists in `assets/fonts/DSEG7Classic-Regular.ttf`
+- Date stamp only applied during crop operation (not retroactively on already-cropped images)
+- View console logs for PIL/Pillow errors during stamp rendering
+- Preview stamp in full-size viewer to verify settings before batch cropping
+- Service implementation: `src/services/date_stamp_service.py`
+
 ## Workspace & Output Structure
 
 **Workspace directory structure** (configured in `config/settings.json`):
@@ -353,10 +404,11 @@ PyInstaller bundles:
 - Python interpreter
 - All dependencies (PyQt6, Pillow, piexif, smartcrop, torch, torchvision)
 - `config/` folder (via `--add-data`)
+- `assets/` folder including DSEG7 Classic font (via `--add-data`)
 
-The `config/` folder is included in builds, but `data/projects.json` is NOT (user-specific).
+The `config/` and `assets/` folders are included in builds, but `data/projects.json` is NOT (user-specific).
 
-When modifying the build process, note that macOS uses `:` as separator (`config:config`) while Windows uses `;` (`config;config`) for `--add-data`.
+When modifying the build process, note that macOS uses `:` as separator (`config:config`, `assets:assets`) while Windows uses `;` (`config;config`, `assets;assets`) for `--add-data`.
 
 ## Critical Implementation Patterns
 
@@ -411,15 +463,16 @@ album-studio/
 ├── src/
 │   ├── main.py              # Application entry point
 │   ├── models/              # Data models (Config, Project, ImageItem)
-│   ├── services/            # Business logic (ProjectManager, CropService, ImageProcessor, ImageSimilarityService)
+│   ├── services/            # Business logic (ProjectManager, CropService, ImageProcessor, ImageSimilarityService, DateStampService)
 │   ├── ui/
 │   │   ├── main_window.py   # Main orchestrator window
 │   │   ├── widgets/         # Reusable UI components (ImageGrid, toolbars, panels, overlays)
-│   │   └── dialogs/         # Modal dialogs (ConfigDialog, FindSimilarDialog)
-│   └── utils/               # Utilities (ImageLoader for HEIC support)
+│   │   └── dialogs/         # Modal dialogs (ConfigDialog, FindSimilarDialog, ImageViewerDialog)
+│   └── utils/               # Utilities (ImageLoader for HEIC support, paths)
 ├── config/                  # JSON configuration files (size_group.json, sizes.json, settings.json)
 ├── data/                    # Runtime data (projects.json, project_data per project)
-├── assets/                  # Application icon
+├── assets/                  # Application icon, DSEG7 Classic font
+│   └── fonts/               # DSEG7Classic-Regular.ttf for date stamps
 ├── build.py                 # Cross-platform build script
 ├── BUILD.md                 # Detailed build documentation
 └── requirements.txt         # Python dependencies

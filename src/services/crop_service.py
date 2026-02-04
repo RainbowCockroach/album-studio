@@ -6,6 +6,7 @@ if not hasattr(Image, 'ANTIALIAS'):
     Image.ANTIALIAS = Image.Resampling.LANCZOS  # type: ignore[attr-defined]
 import smartcrop
 from PyQt6.QtCore import QThread, pyqtSignal
+from .date_stamp_service import DateStampService
 
 
 class CropService:
@@ -14,6 +15,7 @@ class CropService:
     def __init__(self, config):
         self.config = config
         self.smartcrop = smartcrop.SmartCrop()
+        self.date_stamp_service = DateStampService(config)
 
     def get_crop_dimensions(self, size_tag: str, image_width: int, image_height: int) -> Optional[tuple]:
         """
@@ -96,15 +98,19 @@ class CropService:
             return None
 
 
-    def crop_image(self, image_path: str, size_tag: str, output_path: str, manual_crop_box: Optional[dict] = None) -> bool:
+    def crop_image(self, image_path: str, size_tag: str, output_path: str, manual_crop_box: Optional[dict] = None, image_item=None) -> bool:
         """
         Crop a single image using manual crop box or smartcrop.
         If manual_crop_box is provided, uses it; otherwise uses smartcrop.
+        If image_item is provided and has add_date_stamp flag, applies date stamp before saving.
         Returns True if successful, False otherwise.
         """
         try:
             # Open image first to get its dimensions
             img = Image.open(image_path)
+
+            # Track original format to determine if we can use subsampling='keep'
+            original_format = img.format
 
             # Convert to RGB if necessary (smartcrop requires RGB)
             if img.mode != 'RGB':
@@ -144,11 +150,34 @@ class CropService:
             # Resize to exact dimensions
             final_img = cropped_img.resize((target_width, target_height), Image.Resampling.LANCZOS)
 
+            # Apply date stamp if requested
+            if image_item and image_item.add_date_stamp:
+                # Get display date (EXIF, filename, or file modification time)
+                display_date = image_item.get_display_date()
+                if display_date:
+                    final_img = self.date_stamp_service.apply_date_stamp(
+                        final_img,
+                        display_date,
+                        size_tag,
+                        output_path
+                    )
+
             # Ensure output directory exists
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-            # Save the cropped image
-            final_img.save(output_path, quality=95)
+            # Save the cropped image with quality preservation
+            # Only use subsampling='keep' if original was JPEG
+            save_params = {
+                'format': 'JPEG',
+                'quality': 95,
+                'optimize': True
+            }
+
+            # Only add subsampling='keep' for JPEG sources
+            if original_format == 'JPEG':
+                save_params['subsampling'] = 'keep'
+
+            final_img.save(output_path, **save_params)
 
             return True
 
@@ -183,7 +212,8 @@ class CropService:
                 image_item.file_path,
                 image_item.size_tag,
                 output_path,
-                manual_crop_box=image_item.crop_box
+                manual_crop_box=image_item.crop_box,
+                image_item=image_item
             )
 
             if success:
@@ -242,7 +272,8 @@ class CropWorker(QThread):
                 image_item.file_path,
                 image_item.size_tag,
                 output_path,
-                manual_crop_box=image_item.crop_box
+                manual_crop_box=image_item.crop_box,
+                image_item=image_item
             )
 
             if success:

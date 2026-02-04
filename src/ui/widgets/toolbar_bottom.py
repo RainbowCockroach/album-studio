@@ -14,6 +14,7 @@ class ToolbarBottom(QWidget):
     tags_changed = pyqtSignal(str, str)  # Emits album, size
     find_similar_requested = pyqtSignal()  # Find similar images
     rotate_requested = pyqtSignal()  # Rotate selected image
+    preview_stamp_requested = pyqtSignal()  # Preview date stamps
 
     def __init__(self, config):
         super().__init__()
@@ -47,6 +48,12 @@ class ToolbarBottom(QWidget):
         self.rotate_btn.setToolTip("Rotate selected image 90° clockwise")
         self.rotate_btn.clicked.connect(self.on_rotate_clicked)
         layout.addWidget(self.rotate_btn)
+
+        # Preview Date Stamp button
+        self.preview_stamp_btn = QPushButton("Preview Stamp")
+        self.preview_stamp_btn.setToolTip("Preview date stamp on selected image in full-size viewer")
+        self.preview_stamp_btn.clicked.connect(self.on_preview_stamp_clicked)
+        layout.addWidget(self.preview_stamp_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -197,4 +204,10 @@ class ToolbarBottom(QWidget):
     def on_rotate_clicked(self):
         """Handle rotate button click."""
         self.rotate_requested.emit()
+    #endregion
+
+    #region | Date Stamp buttons
+    def on_preview_stamp_clicked(self):
+        """Handle preview stamp button click."""
+        self.preview_stamp_requested.emit()
     #endregion

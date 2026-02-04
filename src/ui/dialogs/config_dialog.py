@@ -3,9 +3,12 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDoubleSpinBox, QTabWidget
+    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox, QColorDialog,
+    QListWidgetItem
 )
 from PyQt6.QtCore import Qt, QLocale
+from PyQt6.QtGui import QPainter, QColor, QPen
+from src.models.config import generate_random_color
 
 
 class ConfigDialog(QDialog):
@@ -51,6 +54,14 @@ class ConfigDialog(QDialog):
         cost_tab = self.create_cost_tab()
         tab_widget.addTab(cost_tab, "Cost")
 
+        # Tab 4: Screen Calibration
+        calibration_tab = self.create_calibration_tab()
+        tab_widget.addTab(calibration_tab, "Screen Calibration")
+
+        # Tab 5: Date Stamp
+        date_stamp_tab = self.create_date_stamp_tab()
+        tab_widget.addTab(date_stamp_tab, "Date Stamp")
+
         main_layout.addWidget(tab_widget)
 
         # Bottom buttons
@@ -95,24 +106,26 @@ class ConfigDialog(QDialog):
 
         layout.addLayout(workspace_layout)
 
-        # Comparison directory row
-        comparison_layout = QHBoxLayout()
-        comparison_label = QLabel("Comparison Directory:")
-        comparison_layout.addWidget(comparison_label)
+        # Add separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("margin: 20px 0;")
+        layout.addWidget(separator)
 
-        # Get current comparison directory from settings
-        current_comparison = self.config.get_setting("comparison_directory", "")
-        self.comparison_input = QLineEdit()
-        self.comparison_input.setText(current_comparison)
-        self.comparison_input.setPlaceholderText("Defaults to {workspace}/printed")
-        comparison_layout.addWidget(self.comparison_input)
+        # Mouse shortcuts reminder section
+        shortcuts_title = QLabel("Mouse Shortcuts:")
+        shortcuts_title.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 10px;")
+        layout.addWidget(shortcuts_title)
 
-        # Browse button
-        comparison_browse_btn = QPushButton("Browse...")
-        comparison_browse_btn.clicked.connect(self.browse_comparison_directory)
-        comparison_layout.addWidget(comparison_browse_btn)
-
-        layout.addLayout(comparison_layout)
+        shortcuts_info = QLabel(
+            "Left click (Single): Apply selected size group and size tags to image\n"
+            "Left double click: Clear all tags from image\n"
+            "Right click: Select image for actions (Find Similar, Rotate, etc.)\n"
+            "Right double click: View image detail"
+        )
+        shortcuts_info.setStyleSheet("color: #555; margin-left: 10px; margin-top: 5px; line-height: 1.5;")
+        layout.addWidget(shortcuts_info)
 
         # Add stretch to push content to top
         layout.addStretch()
@@ -130,23 +143,6 @@ class ConfigDialog(QDialog):
         )
         if folder:
             self.workspace_input.setText(folder)
-
-    def browse_comparison_directory(self):
-        """Browse for comparison directory."""
-        current = self.comparison_input.text()
-        # If empty, default to workspace/printed
-        if not current:
-            workspace = self.workspace_input.text()
-            if workspace:
-                current = f"{workspace}/printed"
-
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Select Comparison Directory",
-            current if current else ""
-        )
-        if folder:
-            self.comparison_input.setText(folder)
 
     def create_size_group_tab(self):
         """Create size group settings tab."""
@@ -227,6 +223,252 @@ class ConfigDialog(QDialog):
             self.costs_table.setCellWidget(row, 1, cost_spinbox)
             self.cost_spinboxes[size_ratio] = cost_spinbox
 
+    def create_calibration_tab(self):
+        """Create screen calibration tab for real-size preview."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # Title and instruction
+        title_label = QLabel("Screen Calibration for Real-Size Preview")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title_label)
+
+        instruction_label = QLabel(
+            "Adjust the line below until it matches one unit on your ruler.\n"
+            "This calibration is used to preview images at their real print size.\n"
+            "For example, if your sizes are in inches, adjust until the line equals 1 inch."
+        )
+        instruction_label.setStyleSheet("color: #666; margin-bottom: 10px;")
+        instruction_label.setWordWrap(True)
+        layout.addWidget(instruction_label)
+
+        # Calibration line widget
+        self.calibration_line = CalibrationLineWidget()
+        current_ppu = self.config.get_setting("pixels_per_unit", 100)
+        self.calibration_line.set_length(current_ppu)
+        layout.addWidget(self.calibration_line)
+
+        # Control buttons and display
+        control_layout = QHBoxLayout()
+
+        # Decrease buttons
+        decrease_10_btn = QPushButton("◀◀ -10")
+        decrease_10_btn.clicked.connect(lambda: self.adjust_calibration(-10))
+        control_layout.addWidget(decrease_10_btn)
+
+        decrease_1_btn = QPushButton("◀ -1")
+        decrease_1_btn.clicked.connect(lambda: self.adjust_calibration(-1))
+        control_layout.addWidget(decrease_1_btn)
+
+        # Current value display with spinbox
+        self.calibration_spinbox = QSpinBox()
+        self.calibration_spinbox.setRange(10, 1000)
+        self.calibration_spinbox.setValue(current_ppu)
+        self.calibration_spinbox.setSuffix(" px")
+        self.calibration_spinbox.valueChanged.connect(self.on_calibration_spinbox_changed)
+        control_layout.addWidget(self.calibration_spinbox)
+
+        # Increase buttons
+        increase_1_btn = QPushButton("+1 ▶")
+        increase_1_btn.clicked.connect(lambda: self.adjust_calibration(1))
+        control_layout.addWidget(increase_1_btn)
+
+        increase_10_btn = QPushButton("+10 ▶▶")
+        increase_10_btn.clicked.connect(lambda: self.adjust_calibration(10))
+        control_layout.addWidget(increase_10_btn)
+
+        layout.addLayout(control_layout)
+
+        # Info label
+        info_label = QLabel(
+            "The line length in pixels represents one unit of measurement.\n"
+            "Use keyboard arrow keys (← →) for fine adjustment when buttons are focused."
+        )
+        info_label.setStyleSheet("color: #888; font-size: 11px; margin-top: 15px;")
+        layout.addWidget(info_label)
+
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
+
+    def adjust_calibration(self, delta: int):
+        """Adjust the calibration line length."""
+        current = self.calibration_line.length
+        new_value = max(10, min(1000, current + delta))
+        self.calibration_line.set_length(new_value)
+        self.calibration_spinbox.setValue(new_value)
+
+    def on_calibration_spinbox_changed(self, value: int):
+        """Handle spinbox value change."""
+        self.calibration_line.set_length(value)
+
+    def create_date_stamp_tab(self):
+        """Create date stamp settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # Title
+        title_label = QLabel("Vintage Date Stamp Settings")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title_label)
+
+        instruction_label = QLabel(
+            "Configure the vintage film camera-style date stamp that appears on exported images.\n"
+            "The date stamp maintains a fixed physical size across different print sizes.\n"
+            "Units match your size tags (e.g., if 9x6 = 9cm × 6cm, then 0.2 units = 0.2cm)."
+        )
+        instruction_label.setStyleSheet("color: #666; margin-bottom: 10px;")
+        instruction_label.setWordWrap(True)
+        layout.addWidget(instruction_label)
+
+        # Settings grid
+        from PyQt6.QtWidgets import QFormLayout, QComboBox
+        form_layout = QFormLayout()
+
+        # Physical Height
+        physical_height_layout = QHBoxLayout()
+        self.physical_height_spinbox = QDoubleSpinBox()
+        self.physical_height_spinbox.setRange(0.1, 1.0)
+        self.physical_height_spinbox.setSingleStep(0.05)
+        self.physical_height_spinbox.setDecimals(2)
+        self.physical_height_spinbox.setValue(self.config.get_setting("date_stamp_physical_height", 0.2))
+        self.physical_height_spinbox.setSuffix(" units")
+        physical_height_layout.addWidget(self.physical_height_spinbox)
+        physical_height_layout.addWidget(QLabel("(Recommended: 0.15-0.25 for small prints)"))
+        physical_height_layout.addStretch()
+        form_layout.addRow("Stamp Height:", physical_height_layout)
+
+        # Pixels per Unit (Resolution)
+        dpi_layout = QHBoxLayout()
+        self.dpi_spinbox = QSpinBox()
+        self.dpi_spinbox.setRange(150, 600)
+        self.dpi_spinbox.setSingleStep(50)
+        self.dpi_spinbox.setValue(self.config.get_setting("date_stamp_target_dpi", 300))
+        self.dpi_spinbox.setSuffix(" px/unit")
+        dpi_layout.addWidget(self.dpi_spinbox)
+        dpi_layout.addWidget(QLabel("(Standard: 300, High-res: 600)"))
+        dpi_layout.addStretch()
+        form_layout.addRow("Resolution:", dpi_layout)
+
+        # Date Format
+        format_layout = QVBoxLayout()
+        self.format_input = QLineEdit()
+        self.format_input.setText(self.config.get_setting("date_stamp_format", "YY.MM.DD"))
+        self.format_input.setPlaceholderText("YY.MM.DD")
+        format_layout.addWidget(self.format_input)
+        format_examples = QLabel("Examples: YY.MM.DD → 25.12.23 | MM.DD.YY → 12.25.25 | DD-MM-YY → 25-12-23")
+        format_examples.setStyleSheet("color: #888; font-size: 10px;")
+        format_layout.addWidget(format_examples)
+        format_note = QLabel("Note: Use only numbers, dots (.), dashes (-), and spaces. Avoid apostrophes or special characters.")
+        format_note.setStyleSheet("color: #FF6600; font-size: 10px; font-style: italic;")
+        format_layout.addWidget(format_note)
+        form_layout.addRow("Date Format:", format_layout)
+
+        # Position
+        position_layout = QHBoxLayout()
+        self.position_combo = QComboBox()
+        self.position_combo.addItems(["bottom-right", "bottom-left", "top-right", "top-left"])
+        current_position = self.config.get_setting("date_stamp_position", "bottom-right")
+        self.position_combo.setCurrentText(current_position)
+        position_layout.addWidget(self.position_combo)
+        position_layout.addStretch()
+        form_layout.addRow("Position:", position_layout)
+
+        # Core Text Color
+        color_layout = QHBoxLayout()
+        self.color_button = QPushButton()
+        current_color = self.config.get_setting("date_stamp_color", "#FFAA44")
+        self.current_color = current_color
+        self.color_button.setStyleSheet(f"background-color: {current_color}; min-width: 100px; min-height: 30px;")
+        self.color_button.setText(current_color)
+        self.color_button.clicked.connect(self.pick_date_stamp_color)
+        color_layout.addWidget(self.color_button)
+        color_layout.addWidget(QLabel("(Core/text color - bright orange-yellow)"))
+        color_layout.addStretch()
+        form_layout.addRow("Core Text Color:", color_layout)
+
+        # Glow Color
+        glow_color_layout = QHBoxLayout()
+        self.glow_color_button = QPushButton()
+        current_glow_color = self.config.get_setting("date_stamp_glow_color", "#FF7700")
+        self.current_glow_color = current_glow_color
+        self.glow_color_button.setStyleSheet(f"background-color: {current_glow_color}; min-width: 100px; min-height: 30px;")
+        self.glow_color_button.setText(current_glow_color)
+        self.glow_color_button.clicked.connect(self.pick_glow_color)
+        glow_color_layout.addWidget(self.glow_color_button)
+        glow_color_layout.addWidget(QLabel("(Outer glow color - warm orange)"))
+        glow_color_layout.addStretch()
+        form_layout.addRow("Glow Color:", glow_color_layout)
+
+        # Glow Intensity
+        glow_layout = QHBoxLayout()
+        self.glow_spinbox = QSpinBox()
+        self.glow_spinbox.setRange(0, 100)
+        self.glow_spinbox.setValue(self.config.get_setting("date_stamp_glow_intensity", 80))
+        self.glow_spinbox.setSuffix("%")
+        glow_layout.addWidget(self.glow_spinbox)
+        glow_layout.addStretch()
+        form_layout.addRow("Glow Intensity:", glow_layout)
+
+        # Margin
+        margin_layout = QHBoxLayout()
+        self.margin_spinbox = QSpinBox()
+        self.margin_spinbox.setRange(10, 100)
+        self.margin_spinbox.setValue(self.config.get_setting("date_stamp_margin", 30))
+        self.margin_spinbox.setSuffix(" px")
+        margin_layout.addWidget(self.margin_spinbox)
+        margin_layout.addStretch()
+        form_layout.addRow("Margin from Edge:", margin_layout)
+
+        # Opacity
+        opacity_layout = QHBoxLayout()
+        self.opacity_spinbox = QSpinBox()
+        self.opacity_spinbox.setRange(50, 100)
+        self.opacity_spinbox.setValue(self.config.get_setting("date_stamp_opacity", 90))
+        self.opacity_spinbox.setSuffix("%")
+        opacity_layout.addWidget(self.opacity_spinbox)
+        opacity_layout.addStretch()
+        form_layout.addRow("Opacity:", opacity_layout)
+
+        layout.addLayout(form_layout)
+
+        # Preview section
+        preview_label = QLabel("Preview:")
+        preview_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        layout.addWidget(preview_label)
+
+        preview_info = QLabel(
+            "Date stamp preview will appear on images when you mark them with 'Add Date Stamp' button.\n"
+            "The actual rendering uses multi-layer glow effects for authentic vintage appearance."
+        )
+        preview_info.setStyleSheet("color: #888; font-size: 11px;")
+        preview_info.setWordWrap(True)
+        layout.addWidget(preview_info)
+
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
+
+    def pick_date_stamp_color(self):
+        """Open color picker for date stamp core text color."""
+        color = QColorDialog.getColor(QColor(self.current_color), self, "Choose Core Text Color")
+        if color.isValid():
+            self.current_color = color.name()
+            self.color_button.setStyleSheet(f"background-color: {self.current_color}; min-width: 100px; min-height: 30px;")
+            self.color_button.setText(self.current_color)
+
+    def pick_glow_color(self):
+        """Open color picker for date stamp glow color."""
+        color = QColorDialog.getColor(QColor(self.current_glow_color), self, "Choose Glow Color")
+        if color.isValid():
+            self.current_glow_color = color.name()
+            self.glow_color_button.setStyleSheet(f"background-color: {self.current_glow_color}; min-width: 100px; min-height: 30px;")
+            self.glow_color_button.setText(self.current_glow_color)
+
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
         panel = QWidget()
@@ -271,7 +513,7 @@ class ConfigDialog(QDialog):
         self.sizes_list = QListWidget()
         layout.addWidget(self.sizes_list)
 
-        # Buttons for size management
+        # First row of buttons for size management
         btn_layout = QHBoxLayout()
 
         self.add_size_btn = QPushButton("Add Size")
@@ -287,6 +529,22 @@ class ConfigDialog(QDialog):
         btn_layout.addWidget(self.edit_alias_btn)
 
         layout.addLayout(btn_layout)
+
+        # Second row of buttons for color management
+        color_btn_layout = QHBoxLayout()
+
+        self.pick_color_btn = QPushButton("Pick Color")
+        self.pick_color_btn.clicked.connect(self.pick_size_color)
+        color_btn_layout.addWidget(self.pick_color_btn)
+
+        self.random_color_btn = QPushButton("Random Color")
+        self.random_color_btn.clicked.connect(self.randomize_size_color)
+        color_btn_layout.addWidget(self.random_color_btn)
+
+        color_btn_layout.addStretch()
+
+        layout.addLayout(color_btn_layout)
+
         panel.setLayout(layout)
         return panel
 
@@ -312,7 +570,7 @@ class ConfigDialog(QDialog):
         self.load_sizes_for_group(group_name)
 
     def load_sizes_for_group(self, group_name: str):
-        """Load sizes for the selected group."""
+        """Load sizes for the selected group with color indicators."""
         self.sizes_list.clear()
 
         if group_name not in self.working_copy_size_groups:
@@ -323,6 +581,8 @@ class ConfigDialog(QDialog):
             for size in group_data["sizes"]:
                 size_ratio = size["ratio"]
                 alias = size["alias"]
+                # Get color from global settings (per size ratio, not per group)
+                color = self.config.get_size_color(size_ratio) or "#4CAF50"
                 # Calculate ratio for display
                 try:
                     ratio = self.config.parse_size_ratio(size_ratio)
@@ -330,7 +590,9 @@ class ConfigDialog(QDialog):
                 except ValueError:
                     display_text = f"{alias} ({size_ratio}, invalid format)"
 
-                self.sizes_list.addItem(display_text)
+                item = QListWidgetItem(display_text)
+                item.setForeground(QColor(color))
+                self.sizes_list.addItem(item)
 
     def add_size_group(self):
         """Add a new size group."""
@@ -439,7 +701,11 @@ class ConfigDialog(QDialog):
                     )
                     return
 
-            # Add the size
+            # Auto-assign color if this is a new size ratio (color is global)
+            if not self.config.get_size_color(size_ratio):
+                self.config.set_size_color(size_ratio, generate_random_color())
+
+            # Add the size (color is stored globally in settings, not here)
             group_data["sizes"].append({"ratio": size_ratio, "alias": alias})
             self.load_sizes_for_group(group_name)
 
@@ -512,6 +778,50 @@ class ConfigDialog(QDialog):
 
                 self.load_sizes_for_group(group_name)
 
+    def pick_size_color(self):
+        """Open color dialog to pick a color for the selected size.
+        Color is global per size ratio (same color across all groups)."""
+        current_group = self.size_groups_list.currentItem()
+        current_size = self.sizes_list.currentItem()
+
+        if not current_group or not current_size:
+            QMessageBox.warning(self, "No Selection", "Please select a size to change its color.")
+            return
+
+        group_name = current_group.text()
+        size_text = current_size.text()
+        size_ratio = self._extract_size_ratio_from_display(size_text)
+
+        # Get current color from global settings
+        current_color = self.config.get_size_color(size_ratio) or "#4CAF50"
+
+        # Open color dialog
+        color = QColorDialog.getColor(QColor(current_color), self, f"Pick Color for Size '{size_ratio}'")
+        if color.isValid():
+            new_color = color.name()
+            # Update the color in global settings (applies to all groups with this size)
+            self.config.set_size_color(size_ratio, new_color)
+            self.load_sizes_for_group(group_name)
+
+    def randomize_size_color(self):
+        """Generate a random color for the selected size.
+        Color is global per size ratio (same color across all groups)."""
+        current_group = self.size_groups_list.currentItem()
+        current_size = self.sizes_list.currentItem()
+
+        if not current_group or not current_size:
+            QMessageBox.warning(self, "No Selection", "Please select a size to randomize its color.")
+            return
+
+        group_name = current_group.text()
+        size_text = current_size.text()
+        size_ratio = self._extract_size_ratio_from_display(size_text)
+
+        # Generate random color and update global settings
+        new_color = generate_random_color()
+        self.config.set_size_color(size_ratio, new_color)
+        self.load_sizes_for_group(group_name)
+
     def _extract_size_ratio_from_display(self, display_text: str) -> str:
         """Extract size ratio from display text like 'alias (9x6, ratio: 1.50)'."""
         # Find text between '(' and ','
@@ -527,13 +837,23 @@ class ConfigDialog(QDialog):
         workspace_dir = self.workspace_input.text().strip()
         self.config.set_setting("workspace_directory", workspace_dir)
 
-        # Save comparison directory setting
-        comparison_dir = self.comparison_input.text().strip()
-        self.config.set_setting("comparison_directory", comparison_dir)
-
         # Save size costs
         for size_ratio, spinbox in self.cost_spinboxes.items():
             self.config.set_size_cost(size_ratio, spinbox.value())
+
+        # Save screen calibration (pixels per unit)
+        self.config.set_setting("pixels_per_unit", self.calibration_spinbox.value())
+
+        # Save date stamp settings
+        self.config.set_setting("date_stamp_physical_height", self.physical_height_spinbox.value())
+        self.config.set_setting("date_stamp_target_dpi", self.dpi_spinbox.value())
+        self.config.set_setting("date_stamp_format", self.format_input.text().strip())
+        self.config.set_setting("date_stamp_position", self.position_combo.currentText())
+        self.config.set_setting("date_stamp_color", self.current_color)
+        self.config.set_setting("date_stamp_glow_color", self.current_glow_color)
+        self.config.set_setting("date_stamp_glow_intensity", self.glow_spinbox.value())
+        self.config.set_setting("date_stamp_margin", self.margin_spinbox.value())
+        self.config.set_setting("date_stamp_opacity", self.opacity_spinbox.value())
 
         self.config.save_settings()
 
@@ -607,7 +927,7 @@ class AddSizeDialog(QDialog):
         layout.addWidget(self.alias_input)
 
         # Info label
-        info_label = QLabel("Note: Size ratio must follow NxM pattern (e.g., 9x6)")
+        info_label = QLabel("Note: Size ratio must follow NxM pattern (e.g., 9x6)\nColor is auto-assigned and can be changed later.")
         info_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addWidget(info_label)
 
@@ -672,3 +992,53 @@ class AddSizeDialog(QDialog):
         size_ratio = self.size_ratio_input.text().strip()
         alias = self.alias_input.text().strip() or size_ratio
         return size_ratio, alias
+
+
+class CalibrationLineWidget(QFrame):
+    """Widget that displays a horizontal line for screen calibration."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.length = 100  # Length in pixels
+        self.setMinimumHeight(80)
+        self.setFrameStyle(QFrame.Shape.Box | QFrame.Shadow.Sunken)
+        self.setStyleSheet("background-color: white;")
+
+    def set_length(self, length: int):
+        """Set the length of the calibration line."""
+        self.length = max(10, min(1000, length))
+        self.update()
+
+    def paintEvent(self, event):
+        """Draw the calibration line."""
+        super().paintEvent(event)
+
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Calculate center position
+        center_y = self.height() // 2
+        start_x = (self.width() - self.length) // 2
+        end_x = start_x + self.length
+
+        # Draw the main line
+        pen = QPen(QColor(0, 0, 0))
+        pen.setWidth(3)
+        painter.setPen(pen)
+        painter.drawLine(start_x, center_y, end_x, center_y)
+
+        # Draw end markers (small vertical lines)
+        marker_height = 15
+        painter.drawLine(start_x, center_y - marker_height, start_x, center_y + marker_height)
+        painter.drawLine(end_x, center_y - marker_height, end_x, center_y + marker_height)
+
+        # Draw middle marker
+        mid_x = (start_x + end_x) // 2
+        painter.drawLine(mid_x, center_y - marker_height // 2, mid_x, center_y + marker_height // 2)
+
+        # Draw length label
+        painter.setPen(QColor(100, 100, 100))
+        label_text = f"{self.length} px = 1 unit"
+        painter.drawText(start_x, center_y + 30, label_text)
+
+        painter.end()

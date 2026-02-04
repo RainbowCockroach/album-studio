@@ -143,3 +143,23 @@ def get_user_config_dir() -> str:
     user_config = os.path.join(get_user_data_dir(), "config")
     os.makedirs(user_config, exist_ok=True)
     return user_config
+
+
+def get_assets_dir() -> str:
+    """
+    Get the directory where asset files (fonts, icons, etc.) are stored.
+
+    Assets are bundled with the app and located in the assets/ directory.
+
+    Returns:
+        Path to assets directory
+    """
+    if getattr(sys, 'frozen', False):
+        # Running as PyInstaller bundle
+        return os.path.join(os.path.dirname(sys.executable), "assets")
+    else:
+        # Running from source
+        return os.path.join(
+            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            "assets"
+        )
