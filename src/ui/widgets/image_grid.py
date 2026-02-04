@@ -3,6 +3,7 @@ from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
 from PyQt6.QtGui import QPixmap, QColor
 from .crop_overlay import CropOverlay
+from .date_stamp_preview_overlay import DateStampPreviewOverlay
 from src.utils.image_loader import ImageLoader
 
 
@@ -42,7 +43,9 @@ class ImageGrid(QWidget):
         self.columns = config.get_setting("grid_columns", 5)
         self.image_widgets = {}  # Map ImageItem to ImageWidget
         self.preview_mode = False
+        self.date_stamp_preview_mode = False
         self.selection_mode = False
+        self.selection_mode_type = None  # 'delete' or 'date_stamp'
         self.selected_items = set()
         self.current_selected_item = None  # Single image selection via right-click
         self.thumbnail_workers = []  # Track active thumbnail loading threads
@@ -144,7 +147,7 @@ class ImageGrid(QWidget):
         for image_item, widget in self.image_widgets.items():
             is_selected = image_item in self.selected_items
             is_current = image_item == self.current_selected_item
-            widget.set_selected(is_selected)
+            widget.set_selected(is_selected, self.selection_mode_type)
             widget.set_current_selected(is_current)
             widget.update_border()
 
@@ -153,9 +156,16 @@ class ImageGrid(QWidget):
         if image_item in self.image_widgets:
             self.image_widgets[image_item].refresh_thumbnail()
 
-    def toggle_selection_mode(self, enabled: bool):
-        """Enable or disable selection mode."""
+    def toggle_selection_mode(self, enabled: bool, mode: str = 'delete'):
+        """
+        Enable or disable selection mode.
+
+        Args:
+            enabled: Whether to enable selection mode
+            mode: Type of selection mode - 'delete' or 'date_stamp'
+        """
         self.selection_mode = enabled
+        self.selection_mode_type = mode if enabled else None
         if not enabled:
             self.selected_items.clear()
         self.refresh_display()
@@ -177,10 +187,13 @@ class ImageGrid(QWidget):
             self.selected_items.remove(image_item)
         else:
             self.selected_items.add(image_item)
-        
+
         # Update specific widget
         if image_item in self.image_widgets:
-            self.image_widgets[image_item].set_selected(image_item in self.selected_items)
+            self.image_widgets[image_item].set_selected(
+                image_item in self.selected_items,
+                self.selection_mode_type
+            )
 
     def on_image_double_clicked(self, image_item):
         """Handle double click on image."""
@@ -215,6 +228,22 @@ class ImageGrid(QWidget):
             self.image_widgets[self.current_selected_item].set_current_selected(False)
         self.current_selected_item = None
 
+    def select_all(self):
+        """Select all images."""
+        if not self.current_project:
+            return False
+
+        self.selected_items = set(self.current_project.images)
+        for image_item, widget in self.image_widgets.items():
+            widget.set_selected(True, self.selection_mode_type)
+        return True
+
+    def deselect_all(self):
+        """Deselect all images."""
+        self.selected_items.clear()
+        for _, widget in self.image_widgets.items():
+            widget.set_selected(False, None)
+
     def enter_preview_mode(self):
         """Enter crop preview mode for all fully tagged images."""
         if self.selection_mode:
@@ -230,6 +259,22 @@ class ImageGrid(QWidget):
         self.preview_mode = False
         for _, widget in self.image_widgets.items():
             widget.exit_preview_mode()
+
+    def enter_date_stamp_preview_mode(self):
+        """Enter date stamp preview mode for all images marked for date stamping."""
+        if self.selection_mode or self.preview_mode:
+            return  # Don't enter if in selection or crop preview mode
+
+        self.date_stamp_preview_mode = True
+        for image_item, widget in self.image_widgets.items():
+            if image_item.add_date_stamp:
+                widget.enter_date_stamp_preview_mode(self.config)
+
+    def exit_date_stamp_preview_mode(self):
+        """Exit date stamp preview mode."""
+        self.date_stamp_preview_mode = False
+        for _, widget in self.image_widgets.items():
+            widget.exit_date_stamp_preview_mode()
 
 
 class ImageWidget(QFrame):
@@ -256,8 +301,11 @@ class ImageWidget(QFrame):
         self.right_click_timer.timeout.connect(self._handle_single_right_click)
         self.right_double_click_flag = False
         self.crop_overlay = None  # Will be created in preview mode
+        self.date_stamp_overlay = None  # Will be created in date stamp preview mode
         self.in_preview_mode = False
-        self.is_selected = False  # For batch delete selection mode
+        self.in_date_stamp_preview_mode = False
+        self.is_selected = False  # For batch selection mode
+        self.selection_mode_type = None  # 'delete' or 'date_stamp'
         self.is_current_selected = False  # For single right-click selection
         self.init_ui()
 
@@ -315,9 +363,16 @@ class ImageWidget(QFrame):
         if pixmap and not pixmap.isNull():
             self.thumbnail_label.setPixmap(pixmap)
 
-    def set_selected(self, selected: bool):
-        """Set visual selection state for batch delete mode."""
+    def set_selected(self, selected: bool, mode: str = None):
+        """
+        Set visual selection state for batch selection mode.
+
+        Args:
+            selected: Whether this image is selected
+            mode: Selection mode type - 'delete' or 'date_stamp'
+        """
         self.is_selected = selected
+        self.selection_mode_type = mode
         self.update_border()
 
     def set_current_selected(self, selected: bool):
@@ -336,13 +391,26 @@ class ImageWidget(QFrame):
     def update_border(self):
         """Update border color based on tag status or selection."""
         if self.is_selected:
-            # Red border for selection (delete mode)
-            self.setStyleSheet("QFrame { border: 4px solid red; background-color: #ffeeee; }")
-            self.tag_label.setText("Selected for Deletion")
+            # Different colors for different selection modes
+            if self.selection_mode_type == 'delete':
+                # Red border for delete mode
+                self.setStyleSheet("QFrame { border: 4px solid red; background-color: #ffeeee; }")
+                self.tag_label.setText("Selected for Deletion")
+            elif self.selection_mode_type == 'date_stamp':
+                # Green border for date stamp mode
+                self.setStyleSheet("QFrame { border: 4px solid green; background-color: #eeffee; }")
+                self.tag_label.setText("Selected for Date Stamp")
+            else:
+                # Fallback for unknown mode
+                self.setStyleSheet("QFrame { border: 4px solid blue; background-color: #eeeeff; }")
+                self.tag_label.setText("Selected")
             return
 
         # Determine background color based on current selection
         bg_style = "background-color: #e6f0ff;" if self.is_current_selected else ""
+
+        # Date stamp indicator
+        date_stamp_indicator = " 📅" if self.image_item.add_date_stamp else ""
 
         if self.image_item.is_fully_tagged():
             # Get color from config for fully tagged images (color is global per size ratio)
@@ -355,19 +423,20 @@ class ImageWidget(QFrame):
 
             border_color = "#0066cc" if self.is_current_selected else size_color
             self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}"
+            tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}{date_stamp_indicator}"
             self.tag_label.setText(tag_text)
         elif self.image_item.has_tags():
             # Yellow/orange border for partially tagged
             border_color = "#0066cc" if self.is_current_selected else "orange"
             self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            tag_text = f"{self.image_item.album_tag or ''}\n{self.image_item.size_tag or ''}"
+            tag_text = f"{self.image_item.album_tag or ''}\n{self.image_item.size_tag or ''}{date_stamp_indicator}"
             self.tag_label.setText(tag_text)
         else:
             # Default border for untagged
             border_color = "#0066cc" if self.is_current_selected else "lightgray"
             self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            self.tag_label.setText("No tags")
+            tag_text = "No tags" + date_stamp_indicator
+            self.tag_label.setText(tag_text)
 
     def _handle_single_click(self):
         """Handle single click after delay (if not double-clicked)."""
@@ -455,6 +524,35 @@ class ImageWidget(QFrame):
         self.in_preview_mode = False
         if self.crop_overlay:
             self.crop_overlay.hide()
+
+    def enter_date_stamp_preview_mode(self, config):
+        """Enter date stamp preview mode - show date stamp overlay."""
+        self.in_date_stamp_preview_mode = True
+
+        # Create date stamp overlay if not exists
+        if not self.date_stamp_overlay:
+            self.date_stamp_overlay = DateStampPreviewOverlay(self.thumbnail_label)
+            self.date_stamp_overlay.setGeometry(self.thumbnail_label.rect())
+
+        # Get display date for this image
+        display_date = self.image_item.get_display_date()
+        if display_date and self.image_item.size_tag:
+            self.date_stamp_overlay.set_preview_data(
+                display_date,
+                config,
+                self.thumbnail_size,
+                self.image_item.size_tag
+            )
+            self.date_stamp_overlay.show()
+        else:
+            # Hide if no date or size tag
+            self.date_stamp_overlay.hide()
+
+    def exit_date_stamp_preview_mode(self):
+        """Exit date stamp preview mode - hide date stamp overlay."""
+        self.in_date_stamp_preview_mode = False
+        if self.date_stamp_overlay:
+            self.date_stamp_overlay.hide()
 
     def _get_pixmap_rect(self) -> QRect:
         """Calculate the actual rectangle where the pixmap is displayed within the label."""

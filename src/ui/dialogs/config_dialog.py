@@ -58,6 +58,10 @@ class ConfigDialog(QDialog):
         calibration_tab = self.create_calibration_tab()
         tab_widget.addTab(calibration_tab, "Screen Calibration")
 
+        # Tab 5: Date Stamp
+        date_stamp_tab = self.create_date_stamp_tab()
+        tab_widget.addTab(date_stamp_tab, "Date Stamp")
+
         main_layout.addWidget(tab_widget)
 
         # Bottom buttons
@@ -102,24 +106,26 @@ class ConfigDialog(QDialog):
 
         layout.addLayout(workspace_layout)
 
-        # Comparison directory row
-        comparison_layout = QHBoxLayout()
-        comparison_label = QLabel("Comparison Directory:")
-        comparison_layout.addWidget(comparison_label)
+        # Add separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setFrameShadow(QFrame.Shadow.Sunken)
+        separator.setStyleSheet("margin: 20px 0;")
+        layout.addWidget(separator)
 
-        # Get current comparison directory from settings
-        current_comparison = self.config.get_setting("comparison_directory", "")
-        self.comparison_input = QLineEdit()
-        self.comparison_input.setText(current_comparison)
-        self.comparison_input.setPlaceholderText("Defaults to {workspace}/printed")
-        comparison_layout.addWidget(self.comparison_input)
+        # Mouse shortcuts reminder section
+        shortcuts_title = QLabel("Mouse Shortcuts:")
+        shortcuts_title.setStyleSheet("font-weight: bold; font-size: 13px; margin-top: 10px;")
+        layout.addWidget(shortcuts_title)
 
-        # Browse button
-        comparison_browse_btn = QPushButton("Browse...")
-        comparison_browse_btn.clicked.connect(self.browse_comparison_directory)
-        comparison_layout.addWidget(comparison_browse_btn)
-
-        layout.addLayout(comparison_layout)
+        shortcuts_info = QLabel(
+            "Left click (Single): Apply selected size group and size tags to image\n"
+            "Left double click: Clear all tags from image\n"
+            "Right click: Select image for actions (Find Similar, Rotate, etc.)\n"
+            "Right double click: View image detail"
+        )
+        shortcuts_info.setStyleSheet("color: #555; margin-left: 10px; margin-top: 5px; line-height: 1.5;")
+        layout.addWidget(shortcuts_info)
 
         # Add stretch to push content to top
         layout.addStretch()
@@ -137,23 +143,6 @@ class ConfigDialog(QDialog):
         )
         if folder:
             self.workspace_input.setText(folder)
-
-    def browse_comparison_directory(self):
-        """Browse for comparison directory."""
-        current = self.comparison_input.text()
-        # If empty, default to workspace/printed
-        if not current:
-            workspace = self.workspace_input.text()
-            if workspace:
-                current = f"{workspace}/printed"
-
-        folder = QFileDialog.getExistingDirectory(
-            self,
-            "Select Comparison Directory",
-            current if current else ""
-        )
-        if folder:
-            self.comparison_input.setText(folder)
 
     def create_size_group_tab(self):
         """Create size group settings tab."""
@@ -314,6 +303,150 @@ class ConfigDialog(QDialog):
     def on_calibration_spinbox_changed(self, value: int):
         """Handle spinbox value change."""
         self.calibration_line.set_length(value)
+
+    def create_date_stamp_tab(self):
+        """Create date stamp settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        # Title
+        title_label = QLabel("Vintage Date Stamp Settings")
+        title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
+        layout.addWidget(title_label)
+
+        instruction_label = QLabel(
+            "Configure the vintage film camera-style date stamp that appears on exported images.\n"
+            "The date stamp maintains a fixed physical size across different print sizes.\n"
+            "Units match your size tags (e.g., if 9x6 = 9cm × 6cm, then 0.2 units = 0.2cm)."
+        )
+        instruction_label.setStyleSheet("color: #666; margin-bottom: 10px;")
+        instruction_label.setWordWrap(True)
+        layout.addWidget(instruction_label)
+
+        # Settings grid
+        from PyQt6.QtWidgets import QFormLayout, QComboBox
+        form_layout = QFormLayout()
+
+        # Physical Height
+        physical_height_layout = QHBoxLayout()
+        self.physical_height_spinbox = QDoubleSpinBox()
+        self.physical_height_spinbox.setRange(0.1, 1.0)
+        self.physical_height_spinbox.setSingleStep(0.05)
+        self.physical_height_spinbox.setDecimals(2)
+        self.physical_height_spinbox.setValue(self.config.get_setting("date_stamp_physical_height", 0.2))
+        self.physical_height_spinbox.setSuffix(" units")
+        physical_height_layout.addWidget(self.physical_height_spinbox)
+        physical_height_layout.addWidget(QLabel("(Recommended: 0.15-0.25 for small prints)"))
+        physical_height_layout.addStretch()
+        form_layout.addRow("Stamp Height:", physical_height_layout)
+
+        # Pixels per Unit (Resolution)
+        dpi_layout = QHBoxLayout()
+        self.dpi_spinbox = QSpinBox()
+        self.dpi_spinbox.setRange(150, 600)
+        self.dpi_spinbox.setSingleStep(50)
+        self.dpi_spinbox.setValue(self.config.get_setting("date_stamp_target_dpi", 300))
+        self.dpi_spinbox.setSuffix(" px/unit")
+        dpi_layout.addWidget(self.dpi_spinbox)
+        dpi_layout.addWidget(QLabel("(Standard: 300, High-res: 600)"))
+        dpi_layout.addStretch()
+        form_layout.addRow("Resolution:", dpi_layout)
+
+        # Date Format
+        format_layout = QVBoxLayout()
+        self.format_input = QLineEdit()
+        self.format_input.setText(self.config.get_setting("date_stamp_format", "YY.MM.DD"))
+        self.format_input.setPlaceholderText("YY.MM.DD")
+        format_layout.addWidget(self.format_input)
+        format_examples = QLabel("Examples: YY.MM.DD → 25.12.23 | MM.DD.YY → 12.25.25 | DD-MM-YY → 25-12-23")
+        format_examples.setStyleSheet("color: #888; font-size: 10px;")
+        format_layout.addWidget(format_examples)
+        format_note = QLabel("Note: Use only numbers, dots (.), dashes (-), and spaces. Avoid apostrophes or special characters.")
+        format_note.setStyleSheet("color: #FF6600; font-size: 10px; font-style: italic;")
+        format_layout.addWidget(format_note)
+        form_layout.addRow("Date Format:", format_layout)
+
+        # Position
+        position_layout = QHBoxLayout()
+        self.position_combo = QComboBox()
+        self.position_combo.addItems(["bottom-right", "bottom-left", "top-right", "top-left"])
+        current_position = self.config.get_setting("date_stamp_position", "bottom-right")
+        self.position_combo.setCurrentText(current_position)
+        position_layout.addWidget(self.position_combo)
+        position_layout.addStretch()
+        form_layout.addRow("Position:", position_layout)
+
+        # Color
+        color_layout = QHBoxLayout()
+        self.color_button = QPushButton()
+        current_color = self.config.get_setting("date_stamp_color", "#FF7700")
+        self.current_color = current_color
+        self.color_button.setStyleSheet(f"background-color: {current_color}; min-width: 100px; min-height: 30px;")
+        self.color_button.setText(current_color)
+        self.color_button.clicked.connect(self.pick_date_stamp_color)
+        color_layout.addWidget(self.color_button)
+        color_layout.addWidget(QLabel("(Vintage orange: #FF7700)"))
+        color_layout.addStretch()
+        form_layout.addRow("Stamp Color:", color_layout)
+
+        # Glow Intensity
+        glow_layout = QHBoxLayout()
+        self.glow_spinbox = QSpinBox()
+        self.glow_spinbox.setRange(0, 100)
+        self.glow_spinbox.setValue(self.config.get_setting("date_stamp_glow_intensity", 80))
+        self.glow_spinbox.setSuffix("%")
+        glow_layout.addWidget(self.glow_spinbox)
+        glow_layout.addStretch()
+        form_layout.addRow("Glow Intensity:", glow_layout)
+
+        # Margin
+        margin_layout = QHBoxLayout()
+        self.margin_spinbox = QSpinBox()
+        self.margin_spinbox.setRange(10, 100)
+        self.margin_spinbox.setValue(self.config.get_setting("date_stamp_margin", 30))
+        self.margin_spinbox.setSuffix(" px")
+        margin_layout.addWidget(self.margin_spinbox)
+        margin_layout.addStretch()
+        form_layout.addRow("Margin from Edge:", margin_layout)
+
+        # Opacity
+        opacity_layout = QHBoxLayout()
+        self.opacity_spinbox = QSpinBox()
+        self.opacity_spinbox.setRange(50, 100)
+        self.opacity_spinbox.setValue(self.config.get_setting("date_stamp_opacity", 90))
+        self.opacity_spinbox.setSuffix("%")
+        opacity_layout.addWidget(self.opacity_spinbox)
+        opacity_layout.addStretch()
+        form_layout.addRow("Opacity:", opacity_layout)
+
+        layout.addLayout(form_layout)
+
+        # Preview section
+        preview_label = QLabel("Preview:")
+        preview_label.setStyleSheet("font-weight: bold; margin-top: 20px;")
+        layout.addWidget(preview_label)
+
+        preview_info = QLabel(
+            "Date stamp preview will appear on images when you mark them with 'Add Date Stamp' button.\n"
+            "The actual rendering uses multi-layer glow effects for authentic vintage appearance."
+        )
+        preview_info.setStyleSheet("color: #888; font-size: 11px;")
+        preview_info.setWordWrap(True)
+        layout.addWidget(preview_info)
+
+        # Add stretch to push content to top
+        layout.addStretch()
+
+        tab.setLayout(layout)
+        return tab
+
+    def pick_date_stamp_color(self):
+        """Open color picker for date stamp color."""
+        color = QColorDialog.getColor(QColor(self.current_color), self, "Choose Date Stamp Color")
+        if color.isValid():
+            self.current_color = color.name()
+            self.color_button.setStyleSheet(f"background-color: {self.current_color}; min-width: 100px; min-height: 30px;")
+            self.color_button.setText(self.current_color)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -683,16 +816,22 @@ class ConfigDialog(QDialog):
         workspace_dir = self.workspace_input.text().strip()
         self.config.set_setting("workspace_directory", workspace_dir)
 
-        # Save comparison directory setting
-        comparison_dir = self.comparison_input.text().strip()
-        self.config.set_setting("comparison_directory", comparison_dir)
-
         # Save size costs
         for size_ratio, spinbox in self.cost_spinboxes.items():
             self.config.set_size_cost(size_ratio, spinbox.value())
 
         # Save screen calibration (pixels per unit)
         self.config.set_setting("pixels_per_unit", self.calibration_spinbox.value())
+
+        # Save date stamp settings
+        self.config.set_setting("date_stamp_physical_height", self.physical_height_spinbox.value())
+        self.config.set_setting("date_stamp_target_dpi", self.dpi_spinbox.value())
+        self.config.set_setting("date_stamp_format", self.format_input.text().strip())
+        self.config.set_setting("date_stamp_position", self.position_combo.currentText())
+        self.config.set_setting("date_stamp_color", self.current_color)
+        self.config.set_setting("date_stamp_glow_intensity", self.glow_spinbox.value())
+        self.config.set_setting("date_stamp_margin", self.margin_spinbox.value())
+        self.config.set_setting("date_stamp_opacity", self.opacity_spinbox.value())
 
         self.config.save_settings()
 

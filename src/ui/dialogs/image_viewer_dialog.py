@@ -208,6 +208,10 @@ class ImageViewerDialog(QDialog):
                     x, y, width, height = crop_box
                     cropped_img = img.crop((x, y, x + width, y + height))
 
+                    # Apply date stamp preview if enabled
+                    if self.image_item.add_date_stamp:
+                        cropped_img = self._apply_date_stamp_preview(cropped_img)
+
                     # Convert PIL Image to QPixmap
                     import io
 
@@ -248,6 +252,41 @@ class ImageViewerDialog(QDialog):
 
             self.image_label.set_image(pixmap, initial_zoom)
 
+    def _apply_date_stamp_preview(self, img):
+        """
+        Apply date stamp preview to the PIL Image.
+
+        Args:
+            img: PIL Image to apply date stamp to
+
+        Returns:
+            PIL Image with date stamp applied
+        """
+        if not self.image_item or not self.config:
+            return img
+
+        try:
+            from src.services.date_stamp_service import DateStampService
+
+            # Get display date
+            display_date = self.image_item.get_display_date()
+            if not display_date:
+                return img
+
+            # Apply date stamp using the service
+            date_stamp_service = DateStampService(self.config)
+            stamped_img = date_stamp_service.apply_date_stamp(
+                img,
+                display_date,
+                self.image_item.size_tag
+            )
+
+            return stamped_img
+
+        except Exception as e:
+            print(f"Error applying date stamp preview: {e}")
+            return img  # Return original image on error
+
     def _check_real_size_available(self) -> bool:
         """Check if real-size preview is available for this image."""
         # Must have image_item, config, and a valid size tag
@@ -266,6 +305,11 @@ class ImageViewerDialog(QDialog):
         """Update the hint label based on current mode."""
         base_hint = "Scroll to zoom | Drag to pan | Click outside or ESC to close"
 
+        # Check if date stamp preview is shown
+        date_stamp_indicator = ""
+        if self.image_item and self.image_item.add_date_stamp:
+            date_stamp_indicator = "[DATE STAMP PREVIEW] | "
+
         if self.can_use_real_size:
             if self.real_size_mode:
                 # Get dimensions for display
@@ -277,11 +321,11 @@ class ImageViewerDialog(QDialog):
                     mode_info = f"[REAL SIZE: {width}x{height} units = {real_width}x{real_height}px]"
                 except ValueError:
                     mode_info = "[REAL SIZE MODE]"
-                self.hint_label.setText(f"{mode_info} | Press R for normal view | {base_hint}")
+                self.hint_label.setText(f"{date_stamp_indicator}{mode_info} | Press R for normal view | {base_hint}")
             else:
-                self.hint_label.setText(f"[Normal View] | Press R for real-size preview | {base_hint}")
+                self.hint_label.setText(f"{date_stamp_indicator}[Normal View] | Press R for real-size preview | {base_hint}")
         else:
-            self.hint_label.setText(base_hint)
+            self.hint_label.setText(f"{date_stamp_indicator}{base_hint}")
 
     def toggle_real_size_mode(self):
         """Toggle between normal and real-size preview modes."""

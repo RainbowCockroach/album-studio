@@ -11,9 +11,24 @@ from PIL import Image
 class ProjectManager:
     """Service for managing projects: CRUD operations and persistence."""
 
-    def __init__(self, data_dir: Optional[str] = None):
-        # Use user data directory by default (persists across updates)
-        self.data_dir = data_dir if data_dir else get_user_data_dir()
+    def __init__(self, workspace_directory: Optional[str] = None, data_dir: Optional[str] = None):
+        """Initialize ProjectManager.
+
+        Args:
+            workspace_directory: Workspace directory (uses {workspace}/.album-studio-settings/ for data)
+            data_dir: Legacy parameter for backward compatibility (overrides workspace_directory)
+        """
+        # Use workspace-based directory if provided, otherwise fall back to user data directory
+        if data_dir:
+            # Legacy: explicit data_dir parameter (for backward compatibility)
+            self.data_dir = data_dir
+        elif workspace_directory:
+            # New: use {workspace}/.album-studio-settings/
+            self.data_dir = os.path.join(workspace_directory, ".album-studio-settings")
+        else:
+            # Fallback: use platform-specific user data directory
+            self.data_dir = get_user_data_dir()
+
         self.projects_file = os.path.join(self.data_dir, "projects.json")
         self.projects: List[Project] = []
 
@@ -151,14 +166,14 @@ class ProjectManager:
 
     def archive_project(self, project_name: str, workspace_dir: Optional[str] = None, thumbnail_size: int = 800) -> dict:
         """Archive a project by:
-        1. Creating thumbnails of all output folder images → save to 'printed' folder at workspace root
+        1. Creating thumbnails of all output folder images → save to '_past_printed' folder at workspace root
         2. Zipping the output folder → save to workspace root
         3. Deleting entire project directory
         4. Removing project from projects.json
 
         Args:
             project_name: Name of the project to archive
-            workspace_dir: Workspace directory root (for printed folder and zip location)
+            workspace_dir: Workspace directory root (for _past_printed folder and zip location)
             thumbnail_size: Maximum size for thumbnail (default 800px)
 
         Returns:
@@ -180,15 +195,15 @@ class ProjectManager:
         # Get project directory (parent of input folder)
         project_directory = os.path.dirname(project.input_folder)
 
-        # Determine workspace root and printed folder location
+        # Determine workspace root and _past_printed folder location
         if workspace_dir:
-            # Use workspace directory root for global printed folder and zip location
-            printed_folder = os.path.join(workspace_dir, "printed")
+            # Use workspace directory root for global _past_printed folder and zip location
+            printed_folder = os.path.join(workspace_dir, "_past_printed")
             zip_location = workspace_dir
         else:
             # Fallback to old behavior (parent directory of project folder)
             workspace_root = os.path.dirname(project_directory)
-            printed_folder = os.path.join(workspace_root, "printed")
+            printed_folder = os.path.join(workspace_root, "_past_printed")
             zip_location = workspace_root
 
         os.makedirs(printed_folder, exist_ok=True)

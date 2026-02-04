@@ -1,6 +1,8 @@
 from datetime import datetime
 from typing import Optional
 import numpy as np
+import os
+import re
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtCore import Qt
 
@@ -18,6 +20,7 @@ class ImageItem:
         self._thumbnail: Optional[QPixmap] = None
         self.feature_vector: Optional[np.ndarray] = None  # Cached ResNet50 features for similarity search
         self.exif_data: Optional[dict] = None  # Cached EXIF info to avoid re-reading
+        self.add_date_stamp: bool = False  # Flag to indicate if date stamp should be added on export
 
     def set_tags(self, album: Optional[str] = None, size: Optional[str] = None):
         """Set album and/or size tags."""
@@ -77,6 +80,39 @@ class ImageItem:
         """Clear cached EXIF data to force re-reading."""
         self.exif_data = None
 
+    def get_display_date(self) -> Optional[datetime]:
+        """
+        Get the date to display on the date stamp.
+        Priority: 1) EXIF date_taken, 2) Parse from filename, 3) File modification time
+        """
+        # Return cached EXIF date if available
+        if self.date_taken is not None:
+            return self.date_taken
+
+        # Try to parse date from filename (format: YYYYMMDD_HHMMSS)
+        filename = os.path.basename(self.file_path)
+        name_without_ext = os.path.splitext(filename)[0]
+
+        # Pattern: 20231225_143022 or similar
+        pattern = r'^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})'
+        match = re.match(pattern, name_without_ext)
+
+        if match:
+            try:
+                year, month, day, hour, minute, second = map(int, match.groups())
+                return datetime(year, month, day, hour, minute, second)
+            except ValueError:
+                pass  # Invalid date values, continue to fallback
+
+        # Fallback to file modification time
+        try:
+            mtime = os.path.getmtime(self.file_path)
+            return datetime.fromtimestamp(mtime)
+        except Exception:
+            pass
+
+        return None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
@@ -86,7 +122,8 @@ class ImageItem:
             "date_taken": self.date_taken.isoformat() if self.date_taken else None,
             "is_cropped": self.is_cropped,
             "crop_box": self.crop_box,
-            "feature_vector": self.feature_vector.tolist() if self.feature_vector is not None else None
+            "feature_vector": self.feature_vector.tolist() if self.feature_vector is not None else None,
+            "add_date_stamp": self.add_date_stamp
         }
 
     @classmethod
@@ -97,6 +134,7 @@ class ImageItem:
         item.size_tag = data.get("size_tag")
         item.is_cropped = data.get("is_cropped", False)
         item.crop_box = data.get("crop_box")
+        item.add_date_stamp = data.get("add_date_stamp", False)
 
         date_str = data.get("date_taken")
         if date_str:

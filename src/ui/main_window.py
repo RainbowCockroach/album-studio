@@ -68,7 +68,9 @@ class MainWindow(QMainWindow):
         migrate_old_data()
 
         self.config = Config()
-        self.project_manager = ProjectManager()
+        # Get workspace directory from config to determine data location
+        workspace_directory = self.config.get_setting("workspace_directory", "")
+        self.project_manager = ProjectManager(workspace_directory=workspace_directory if workspace_directory else None)
         self.crop_service = CropService(self.config)
         self.similarity_service = None  # Lazy load when needed
         self.current_project = None
@@ -140,6 +142,8 @@ class MainWindow(QMainWindow):
         self.project_toolbar.add_photo_requested.connect(self.on_add_photo_requested)
         self.project_toolbar.delete_mode_toggled.connect(self.on_delete_mode_toggled)
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
+        self.project_toolbar.date_stamp_mode_toggled.connect(self.on_date_stamp_mode_toggled)
+        self.project_toolbar.date_stamp_confirmed.connect(self.on_date_stamp_confirmed)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
         self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
 
@@ -151,6 +155,8 @@ class MainWindow(QMainWindow):
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
         self.tag_panel.rotate_requested.connect(self.on_rotate_requested)
+        self.tag_panel.select_all_requested.connect(self.on_select_all_requested)
+        self.tag_panel.preview_stamp_requested.connect(self.on_preview_stamp_requested)
 
         # Detail panel
         self.detail_panel.rename_requested.connect(self.on_rename_requested)
@@ -412,8 +418,16 @@ class MainWindow(QMainWindow):
 
     def on_delete_mode_toggled(self, enabled: bool):
         """Handle delete mode toggle."""
-        self.image_grid.toggle_selection_mode(enabled)
-        
+        self.image_grid.toggle_selection_mode(enabled, mode='delete')
+
+        if not enabled:
+            # Just exit mode, clear selection
+            pass
+
+    def on_date_stamp_mode_toggled(self, enabled: bool):
+        """Handle date stamp selection mode toggle."""
+        self.image_grid.toggle_selection_mode(enabled, mode='date_stamp')
+
         if not enabled:
             # Just exit mode, clear selection
             pass
@@ -874,6 +888,93 @@ class MainWindow(QMainWindow):
                 "Rotation Failed",
                 f"Failed to rotate image: {self.last_clicked_image.file_path}"
             )
+
+    def on_select_all_requested(self):
+        """Handle select all button click - toggle selection of all images."""
+        if not self.current_project:
+            return
+
+        # Check if all are currently selected
+        selected_count = len(self.image_grid.selected_items)
+        total_count = len(self.current_project.images)
+
+        if selected_count == total_count:
+            # All selected, deselect all
+            self.image_grid.deselect_all()
+            self.tag_panel.select_all_btn.setChecked(False)
+            self.tag_panel.select_all_btn.setText("Select All")
+        else:
+            # Not all selected, select all
+            self.image_grid.select_all()
+            self.tag_panel.select_all_btn.setChecked(True)
+            self.tag_panel.select_all_btn.setText("Deselect All")
+
+    def on_date_stamp_confirmed(self):
+        """Handle date stamp confirmation - mark selected images for date stamping."""
+        if not self.current_project:
+            return
+
+        selected_items = self.image_grid.get_selected_items()
+
+        if not selected_items:
+            # No items selected, just exit date stamp mode
+            self.project_toolbar.toggle_date_stamp_mode(False)
+            return
+
+        # Apply date stamp flag to all selected images
+        for image_item in selected_items:
+            image_item.add_date_stamp = True
+
+        # Save project to persist changes
+        self.project_manager.save_project(self.current_project)
+
+        # Refresh display to show date stamp indicators
+        self.image_grid.refresh_display()
+
+        # Exit date stamp mode
+        self.project_toolbar.toggle_date_stamp_mode(False)
+
+        QMessageBox.information(
+            self,
+            "Date Stamp Marked",
+            f"Marked {len(selected_items)} image(s) for date stamping.\nDate stamps will be applied when you export/crop images."
+        )
+
+    def on_preview_stamp_requested(self):
+        """Handle preview stamp button click - open image viewer with date stamp preview."""
+        if not self.current_project:
+            return
+
+        # Get the currently selected image (right-click selection)
+        selected_image = self.image_grid.get_current_selected_item()
+
+        if not selected_image:
+            QMessageBox.information(
+                self,
+                "No Image Selected",
+                "Please right-click on an image to select it first, then click 'Preview Stamp'.\n\n"
+                "The preview will show how the date stamp will appear on that image."
+            )
+            return
+
+        if not selected_image.add_date_stamp:
+            QMessageBox.information(
+                self,
+                "Date Stamp Not Enabled",
+                f"The selected image is not marked for date stamping.\n\n"
+                "Please select the image and click 'Add Date Stamp' first, then preview."
+            )
+            return
+
+        # Open image viewer with date stamp preview
+        from .dialogs.image_viewer_dialog import ImageViewerDialog
+        dialog = ImageViewerDialog(
+            selected_image.file_path,
+            parent=self,
+            image_item=selected_image,
+            config=self.config
+        )
+        dialog.exec()
 
     # ==================== Update Methods ====================
 

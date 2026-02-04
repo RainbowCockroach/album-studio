@@ -16,6 +16,8 @@ class ProjectToolbar(QWidget):
     add_photo_requested = pyqtSignal()
     delete_mode_toggled = pyqtSignal(bool)
     delete_confirmed = pyqtSignal()
+    date_stamp_mode_toggled = pyqtSignal(bool)
+    date_stamp_confirmed = pyqtSignal()
     update_requested = pyqtSignal()  # Emitted when user clicks update button
 
     def __init__(self):
@@ -84,6 +86,23 @@ class ProjectToolbar(QWidget):
         self.delete_cancel_btn.hide()
         layout.addWidget(self.delete_cancel_btn)
 
+        # Add Date Stamp button (Normal mode)
+        self.date_stamp_btn = QPushButton("Add Date Stamp")
+        self.date_stamp_btn.clicked.connect(lambda: self.toggle_date_stamp_mode(True))
+        layout.addWidget(self.date_stamp_btn)
+
+        # Date Stamp mode buttons (Hidden by default)
+        self.date_stamp_confirm_btn = QPushButton("Mark to set date stamp")
+        self.date_stamp_confirm_btn.setStyleSheet("background-color: #ccf0cc; color: green; font-weight: bold;")
+        self.date_stamp_confirm_btn.clicked.connect(self.date_stamp_confirmed.emit)
+        self.date_stamp_confirm_btn.hide()
+        layout.addWidget(self.date_stamp_confirm_btn)
+
+        self.date_stamp_cancel_btn = QPushButton("Cancel")
+        self.date_stamp_cancel_btn.clicked.connect(lambda: self.toggle_date_stamp_mode(False))
+        self.date_stamp_cancel_btn.hide()
+        layout.addWidget(self.date_stamp_cancel_btn)
+
         layout.addStretch()
 
         # Update button (hidden by default, shown when update available)
@@ -114,9 +133,25 @@ class ProjectToolbar(QWidget):
         self.project_combo.setEnabled(not enabled)
         self.add_photo_btn.setVisible(not enabled)
         self.delete_photo_btn.setVisible(not enabled)
+        self.date_stamp_btn.setVisible(not enabled)
 
         self.delete_confirm_btn.setVisible(enabled)
         self.delete_cancel_btn.setVisible(enabled)
+
+    def toggle_date_stamp_mode(self, enabled: bool):
+        """Toggle between normal and date stamp selection mode."""
+        self.date_stamp_mode_toggled.emit(enabled)
+
+        self.new_project_btn.setVisible(not enabled)
+        self.archive_project_btn.setVisible(not enabled)
+        self.refresh_btn.setVisible(not enabled)
+        self.project_combo.setEnabled(not enabled)
+        self.add_photo_btn.setVisible(not enabled)
+        self.delete_photo_btn.setVisible(not enabled)
+        self.date_stamp_btn.setVisible(not enabled)
+
+        self.date_stamp_confirm_btn.setVisible(enabled)
+        self.date_stamp_cancel_btn.setVisible(enabled)
 
     def set_projects(self, project_names: list):
         """Update the project dropdown with available projects."""

@@ -337,17 +337,12 @@ class Config:
     def get_comparison_directory(self) -> str:
         """
         Get the comparison directory for similarity search.
-        Defaults to {workspace_directory}/printed if not set.
+        Fixed to {workspace_directory}/_past_printed.
         """
-        comparison_dir = self.settings.get("comparison_directory", "")
-
-        # If not set, default to workspace/printed
-        if not comparison_dir:
-            workspace = self.settings.get("workspace_directory", "")
-            if workspace:
-                comparison_dir = os.path.join(workspace, "printed")
-
-        return comparison_dir
+        workspace = self.settings.get("workspace_directory", "")
+        if workspace:
+            return os.path.join(workspace, "_past_printed")
+        return ""
 
     # ========== Size Cost Management ==========
 
@@ -386,8 +381,17 @@ class Config:
             "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
-            "comparison_directory": "",  # Empty means use {workspace}/printed
             "size_costs": {},  # Maps size ratio (e.g., "5x7") to cost (number)
             "size_colors": {},  # Maps size ratio (e.g., "5x7") to color (hex string)
-            "pixels_per_unit": 100  # Pixels per unit for real-size preview (calibrated by user)
+            "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)
+            # Date stamp settings
+            "date_stamp_enabled": True,
+            "date_stamp_format": "YY.MM.DD",
+            "date_stamp_physical_height": 0.2,  # units (same as size tag units)
+            "date_stamp_target_dpi": 300,  # pixels per unit (resolution)
+            "date_stamp_position": "bottom-right",  # bottom-right, bottom-left, top-right, top-left
+            "date_stamp_color": "#FF7700",  # orange
+            "date_stamp_glow_intensity": 80,  # 0-100
+            "date_stamp_margin": 30,  # pixels from edge
+            "date_stamp_opacity": 90  # 0-100
         }
