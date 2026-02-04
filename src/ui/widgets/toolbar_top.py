@@ -18,6 +18,7 @@ class ProjectToolbar(QWidget):
     delete_confirmed = pyqtSignal()
     date_stamp_mode_toggled = pyqtSignal(bool)
     date_stamp_confirmed = pyqtSignal()
+    select_all_toggled = pyqtSignal()  # Emitted when select all/deselect all is clicked
     update_requested = pyqtSignal()  # Emitted when user clicks update button
 
     def __init__(self):
@@ -86,6 +87,14 @@ class ProjectToolbar(QWidget):
         self.delete_cancel_btn.hide()
         layout.addWidget(self.delete_cancel_btn)
 
+        # Select All/Deselect All button (shown in selection modes)
+        self.select_all_btn = QPushButton("Select All")
+        self.select_all_btn.setCheckable(True)
+        self.select_all_btn.setStyleSheet("background-color: #cce5ff; font-weight: bold;")
+        self.select_all_btn.clicked.connect(self.on_select_all_clicked)
+        self.select_all_btn.hide()
+        layout.addWidget(self.select_all_btn)
+
         # Add Date Stamp button (Normal mode)
         self.date_stamp_btn = QPushButton("Add Date Stamp")
         self.date_stamp_btn.clicked.connect(lambda: self.toggle_date_stamp_mode(True))
@@ -137,6 +146,12 @@ class ProjectToolbar(QWidget):
 
         self.delete_confirm_btn.setVisible(enabled)
         self.delete_cancel_btn.setVisible(enabled)
+        self.select_all_btn.setVisible(enabled)
+
+        # Reset select all button state when entering mode
+        if enabled:
+            self.select_all_btn.setChecked(False)
+            self.select_all_btn.setText("Select All")
 
     def toggle_date_stamp_mode(self, enabled: bool):
         """Toggle between normal and date stamp selection mode."""
@@ -152,6 +167,12 @@ class ProjectToolbar(QWidget):
 
         self.date_stamp_confirm_btn.setVisible(enabled)
         self.date_stamp_cancel_btn.setVisible(enabled)
+        self.select_all_btn.setVisible(enabled)
+
+        # Reset select all button state when entering mode
+        if enabled:
+            self.select_all_btn.setChecked(False)
+            self.select_all_btn.setText("Select All")
 
     def set_projects(self, project_names: list):
         """Update the project dropdown with available projects."""
@@ -220,6 +241,15 @@ class ProjectToolbar(QWidget):
         """Show installing state on update button."""
         self.update_btn.setText("Installing...")
         self.update_btn.setEnabled(False)
+
+    def on_select_all_clicked(self):
+        """Handle select all button click."""
+        self.select_all_toggled.emit()
+
+    def update_select_all_state(self, all_selected: bool):
+        """Update the select all button state and text."""
+        self.select_all_btn.setChecked(all_selected)
+        self.select_all_btn.setText("Deselect All" if all_selected else "Select All")
 
 
 class NewProjectDialog(QDialog):

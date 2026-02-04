@@ -144,6 +144,7 @@ class MainWindow(QMainWindow):
         self.project_toolbar.delete_confirmed.connect(self.on_delete_confirmed)
         self.project_toolbar.date_stamp_mode_toggled.connect(self.on_date_stamp_mode_toggled)
         self.project_toolbar.date_stamp_confirmed.connect(self.on_date_stamp_confirmed)
+        self.project_toolbar.select_all_toggled.connect(self.on_select_all_requested)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
         self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
 
@@ -155,7 +156,6 @@ class MainWindow(QMainWindow):
         self.tag_panel.detail_toggled.connect(self.detail_panel.setVisible)
         self.tag_panel.find_similar_requested.connect(self.on_find_similar_requested)
         self.tag_panel.rotate_requested.connect(self.on_rotate_requested)
-        self.tag_panel.select_all_requested.connect(self.on_select_all_requested)
         self.tag_panel.preview_stamp_requested.connect(self.on_preview_stamp_requested)
 
         # Detail panel
@@ -428,7 +428,13 @@ class MainWindow(QMainWindow):
         """Handle date stamp selection mode toggle."""
         self.image_grid.toggle_selection_mode(enabled, mode='date_stamp')
 
-        if not enabled:
+        if enabled:
+            # Update select all button state based on pre-selected items
+            if self.current_project:
+                selected_count = len(self.image_grid.selected_items)
+                total_count = len(self.current_project.images)
+                self.project_toolbar.update_select_all_state(selected_count == total_count and total_count > 0)
+        else:
             # Just exit mode, clear selection
             pass
 
@@ -901,13 +907,11 @@ class MainWindow(QMainWindow):
         if selected_count == total_count:
             # All selected, deselect all
             self.image_grid.deselect_all()
-            self.tag_panel.select_all_btn.setChecked(False)
-            self.tag_panel.select_all_btn.setText("Select All")
+            self.project_toolbar.update_select_all_state(False)
         else:
             # Not all selected, select all
             self.image_grid.select_all()
-            self.tag_panel.select_all_btn.setChecked(True)
-            self.tag_panel.select_all_btn.setText("Deselect All")
+            self.project_toolbar.update_select_all_state(True)
 
     def on_date_stamp_confirmed(self):
         """Handle date stamp confirmation - mark selected images for date stamping."""
@@ -915,15 +919,24 @@ class MainWindow(QMainWindow):
             return
 
         selected_items = self.image_grid.get_selected_items()
+        selected_items_set = set(selected_items)
 
-        if not selected_items:
-            # No items selected, just exit date stamp mode
-            self.project_toolbar.toggle_date_stamp_mode(False)
-            return
+        # Track changes for the message
+        added_count = 0
+        removed_count = 0
 
-        # Apply date stamp flag to all selected images
-        for image_item in selected_items:
-            image_item.add_date_stamp = True
+        # Update all images in the project
+        for image_item in self.current_project.images:
+            if image_item in selected_items_set:
+                # Image is selected - ensure flag is set
+                if not image_item.add_date_stamp:
+                    added_count += 1
+                image_item.add_date_stamp = True
+            else:
+                # Image is not selected - remove flag if it was previously set
+                if image_item.add_date_stamp:
+                    removed_count += 1
+                    image_item.add_date_stamp = False
 
         # Save project to persist changes
         self.project_manager.save_project(self.current_project)
@@ -934,11 +947,25 @@ class MainWindow(QMainWindow):
         # Exit date stamp mode
         self.project_toolbar.toggle_date_stamp_mode(False)
 
-        QMessageBox.information(
-            self,
-            "Date Stamp Marked",
-            f"Marked {len(selected_items)} image(s) for date stamping.\nDate stamps will be applied when you export/crop images."
-        )
+        # Show informative message
+        if added_count > 0 or removed_count > 0:
+            message_parts = []
+            if added_count > 0:
+                message_parts.append(f"Added date stamp to {added_count} image(s)")
+            if removed_count > 0:
+                message_parts.append(f"Removed date stamp from {removed_count} image(s)")
+
+            QMessageBox.information(
+                self,
+                "Date Stamp Updated",
+                "\n".join(message_parts) + "\n\nDate stamps will be applied when you export/crop images."
+            )
+        else:
+            QMessageBox.information(
+                self,
+                "No Changes",
+                "No changes made to date stamp markers."
+            )
 
     def on_preview_stamp_requested(self):
         """Handle preview stamp button click - open image viewer with date stamp preview."""

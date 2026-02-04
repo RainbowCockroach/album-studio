@@ -168,6 +168,13 @@ class ImageGrid(QWidget):
         self.selection_mode_type = mode if enabled else None
         if not enabled:
             self.selected_items.clear()
+        else:
+            # For date stamp mode, pre-select images that already have the flag
+            if mode == 'date_stamp' and self.current_project:
+                self.selected_items.clear()
+                for image_item in self.current_project.images:
+                    if image_item.add_date_stamp:
+                        self.selected_items.add(image_item)
         self.refresh_display()
 
     def get_selected_items(self):
