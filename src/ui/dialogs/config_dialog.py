@@ -376,18 +376,31 @@ class ConfigDialog(QDialog):
         position_layout.addStretch()
         form_layout.addRow("Position:", position_layout)
 
-        # Color
+        # Core Text Color
         color_layout = QHBoxLayout()
         self.color_button = QPushButton()
-        current_color = self.config.get_setting("date_stamp_color", "#FF7700")
+        current_color = self.config.get_setting("date_stamp_color", "#FFAA44")
         self.current_color = current_color
         self.color_button.setStyleSheet(f"background-color: {current_color}; min-width: 100px; min-height: 30px;")
         self.color_button.setText(current_color)
         self.color_button.clicked.connect(self.pick_date_stamp_color)
         color_layout.addWidget(self.color_button)
-        color_layout.addWidget(QLabel("(Vintage orange: #FF7700)"))
+        color_layout.addWidget(QLabel("(Core/text color - bright orange-yellow)"))
         color_layout.addStretch()
-        form_layout.addRow("Stamp Color:", color_layout)
+        form_layout.addRow("Core Text Color:", color_layout)
+
+        # Glow Color
+        glow_color_layout = QHBoxLayout()
+        self.glow_color_button = QPushButton()
+        current_glow_color = self.config.get_setting("date_stamp_glow_color", "#FF7700")
+        self.current_glow_color = current_glow_color
+        self.glow_color_button.setStyleSheet(f"background-color: {current_glow_color}; min-width: 100px; min-height: 30px;")
+        self.glow_color_button.setText(current_glow_color)
+        self.glow_color_button.clicked.connect(self.pick_glow_color)
+        glow_color_layout.addWidget(self.glow_color_button)
+        glow_color_layout.addWidget(QLabel("(Outer glow color - warm orange)"))
+        glow_color_layout.addStretch()
+        form_layout.addRow("Glow Color:", glow_color_layout)
 
         # Glow Intensity
         glow_layout = QHBoxLayout()
@@ -441,12 +454,20 @@ class ConfigDialog(QDialog):
         return tab
 
     def pick_date_stamp_color(self):
-        """Open color picker for date stamp color."""
-        color = QColorDialog.getColor(QColor(self.current_color), self, "Choose Date Stamp Color")
+        """Open color picker for date stamp core text color."""
+        color = QColorDialog.getColor(QColor(self.current_color), self, "Choose Core Text Color")
         if color.isValid():
             self.current_color = color.name()
             self.color_button.setStyleSheet(f"background-color: {self.current_color}; min-width: 100px; min-height: 30px;")
             self.color_button.setText(self.current_color)
+
+    def pick_glow_color(self):
+        """Open color picker for date stamp glow color."""
+        color = QColorDialog.getColor(QColor(self.current_glow_color), self, "Choose Glow Color")
+        if color.isValid():
+            self.current_glow_color = color.name()
+            self.glow_color_button.setStyleSheet(f"background-color: {self.current_glow_color}; min-width: 100px; min-height: 30px;")
+            self.glow_color_button.setText(self.current_glow_color)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -829,6 +850,7 @@ class ConfigDialog(QDialog):
         self.config.set_setting("date_stamp_format", self.format_input.text().strip())
         self.config.set_setting("date_stamp_position", self.position_combo.currentText())
         self.config.set_setting("date_stamp_color", self.current_color)
+        self.config.set_setting("date_stamp_glow_color", self.current_glow_color)
         self.config.set_setting("date_stamp_glow_intensity", self.glow_spinbox.value())
         self.config.set_setting("date_stamp_margin", self.margin_spinbox.value())
         self.config.set_setting("date_stamp_opacity", self.opacity_spinbox.value())

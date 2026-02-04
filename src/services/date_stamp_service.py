@@ -265,36 +265,54 @@ class DateStampService:
 
         # =================================================================
         # OUTER GLOW LAYERS - Configurable glow color, wide diffusion
+        # Enhanced bleeding effect for vintage film camera aesthetic
         # =================================================================
 
+        # Layer 1: Extreme outer bleed (6x font size) - maximum diffusion
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 4.0), outer_glow_color, 0.35 * glow_factor
+            int(font_size * 6.0), outer_glow_color, 0.25 * glow_factor
         ))
 
+        # Layer 2: Very wide bleed (5x font size)
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 3.0), outer_glow_color, 0.45 * glow_factor
+            int(font_size * 5.0), outer_glow_color, 0.35 * glow_factor
         ))
 
+        # Layer 3: Wide bleed (4x font size)
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 2.0), mid_color, 0.55 * glow_factor
+            int(font_size * 4.0), outer_glow_color, 0.45 * glow_factor
         ))
 
+        # Layer 4: Medium-wide glow (3x font size) - transition color
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 1.5), mid_color, 0.65 * glow_factor
+            int(font_size * 3.0), mid_color, 0.55 * glow_factor
+        ))
+
+        # Layer 5: Medium glow (2x font size)
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 2.0), mid_color, 0.65 * glow_factor
         ))
 
         # =================================================================
         # INNER GLOW LAYERS - Orange core, build up brightness
         # =================================================================
 
+        # Layer 6: Inner-wide glow (1.5x font size) - transition to core
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 1.0), core_color, 0.75 * glow_factor
+            int(font_size * 1.5), mid_color, 0.70 * glow_factor
         ))
 
+        # Layer 7: Inner-medium glow (1x font size)
         canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 0.5), core_color, 0.85 * glow_factor
+            int(font_size * 1.0), core_color, 0.80 * glow_factor
         ))
 
+        # Layer 8: Close glow (0.5x font size)
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 0.5), core_color, 0.90 * glow_factor
+        ))
+
+        # Layer 9: Near glow (0.25x font size)
         canvas = self._screen_blend(canvas, create_glow_layer(
             max(1, int(font_size * 0.25)), core_color, 0.95 * glow_factor
         ))
@@ -303,7 +321,7 @@ class DateStampService:
         # CORE TEXT - Sharp edges for crisp appearance
         # =================================================================
 
-        # Sharp core text (no blur for crisp edges)
+        # Layer 10: Sharp core text (no blur for crisp edges)
         core_opacity = (opacity / 100) * 0.9
         canvas = self._screen_blend(canvas, create_glow_layer(
             0, core_color, core_opacity
@@ -313,8 +331,9 @@ class DateStampService:
         # BRIGHT CENTER HIGHLIGHT - Minimal blur for sharpness
         # =================================================================
 
+        # Layer 11: Bright center highlight
         canvas = self._screen_blend(canvas, create_glow_layer(
-            max(1, int(font_size * 0.05)), bright_color, 0.5
+            max(1, int(font_size * 0.05)), bright_color, 0.6
         ))
 
         return canvas
