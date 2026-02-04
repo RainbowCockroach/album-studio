@@ -3,7 +3,8 @@
 import os
 from datetime import datetime
 from typing import Optional, Tuple
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+import numpy as np
 from ..models.config import Config
 from ..utils.paths import get_assets_dir
 
@@ -57,8 +58,9 @@ class DateStampService:
             margin
         )
 
-        # Composite stamp onto image
-        result = Image.alpha_composite(image.convert('RGBA'), stamp_image)
+        # Composite stamp onto image using Screen blend mode
+        # This simulates light projection - the glow actually brightens the image
+        result = self._screen_blend(image.convert('RGBA'), stamp_image)
 
         # Convert back to RGB for JPEG saving
         return result.convert('RGB')
@@ -126,8 +128,11 @@ class DateStampService:
             return self._font_cache[size]
 
         # Try to load bundled DSEG7 font
+        # Prefer Bold Mini (thicker, more authentic), fallback to Regular
         assets_dir = get_assets_dir()
-        font_path = os.path.join(assets_dir, "fonts", "DSEG7Classic-Regular.ttf")
+        font_path_bold = os.path.join(assets_dir, "fonts", "DSEG7ClassicMini-Bold.ttf")
+
+        font_path = font_path_bold
 
         try:
             if os.path.exists(font_path):
@@ -159,12 +164,13 @@ class DateStampService:
         """
         Create multi-layer date stamp with vintage glow effect.
 
-        Layers (bottom to top):
-        5. White halo (for dark backgrounds)
-        4. Dark outline (for light backgrounds)
-        3. Outer glow (orange)
-        2. Inner glow (yellow-orange)
-        1. Main text (orange)
+        Uses proper alpha channel handling to avoid dark edges:
+        1. Create grayscale masks for text shapes
+        2. Blur the masks
+        3. Apply colors using the masks as alpha channels
+
+        This prevents PIL's antialiasing from creating grey edges by separating
+        the shape/alpha from the color information.
 
         Args:
             image_size: Size of the target image (width, height)
@@ -178,19 +184,20 @@ class DateStampService:
         """
         width, height = image_size
 
-        # Get color settings
-        main_color = self.config.get_setting("date_stamp_color", "#FF7700")
-        glow_intensity = self.config.get_setting("date_stamp_glow_intensity", 80)
-        opacity = self.config.get_setting("date_stamp_opacity", 90)
+        # Get color settings with proper defaults (vintage orange tones)
+        main_color = self.config.get_setting("date_stamp_color", "#FFAA44") or "#FFAA44"  # Bright orange-yellow core (LED look)
+        glow_color = self.config.get_setting("date_stamp_glow_color", "#FF7700") or "#FF7700"  # Warm orange glow
+        glow_intensity = self.config.get_setting("date_stamp_glow_intensity", 80) or 80
+        opacity = self.config.get_setting("date_stamp_opacity", 90) or 90
 
         # Create transparent canvas
         canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
 
-        # Get text bounding box
-        draw = ImageDraw.Draw(canvas)
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
+        # Get text bounding box using temporary draw object
+        temp_draw = ImageDraw.Draw(canvas)
+        bbox = temp_draw.textbbox((0, 0), text, font=font)
+        text_width = int(bbox[2] - bbox[0])
+        text_height = int(bbox[3] - bbox[1])
 
         # Calculate position
         x, y = self._calculate_position(
@@ -199,51 +206,116 @@ class DateStampService:
             position, margin
         )
 
-        # Layer 5: White halo (for dark backgrounds)
-        halo_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        halo_draw = ImageDraw.Draw(halo_layer)
-        halo_opacity = int(255 * 0.25)  # 25% opacity
-        halo_draw.text((x, y), text, font=font, fill=(255, 255, 204, halo_opacity))
-        halo_layer = halo_layer.filter(ImageFilter.GaussianBlur(radius=40))
-        canvas = Image.alpha_composite(canvas, halo_layer)
+        # Normalize glow intensity (0-100 to 0-1)
+        glow_factor = glow_intensity / 100.0
 
-        # Layer 4: Dark outline (for light backgrounds)
-        outline_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        outline_draw = ImageDraw.Draw(outline_layer)
-        outline_opacity = int(255 * 0.40)  # 40% opacity
-        # Draw text slightly offset in all directions for stroke effect
-        for offset_x, offset_y in [(-1, -1), (-1, 1), (1, -1), (1, 1), (-1, 0), (1, 0), (0, -1), (0, 1)]:
-            outline_draw.text(
-                (x + offset_x, y + offset_y),
-                text,
-                font=font,
-                fill=(34, 17, 0, outline_opacity)  # Dark brown
-            )
-        canvas = Image.alpha_composite(canvas, outline_layer)
+        # Get font size for proportional scaling
+        font_size = font.size if hasattr(font, 'size') else text_height
 
-        # Layer 3: Outer glow (orange)
-        outer_glow_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        outer_glow_draw = ImageDraw.Draw(outer_glow_layer)
-        outer_glow_opacity = int(255 * (glow_intensity / 100) * 0.80)
-        outer_glow_draw.text((x, y), text, font=font, fill=(255, 85, 0, outer_glow_opacity))
-        outer_glow_layer = outer_glow_layer.filter(ImageFilter.GaussianBlur(radius=20))
-        canvas = Image.alpha_composite(canvas, outer_glow_layer)
-
-        # Layer 2: Inner glow (yellow-orange)
-        inner_glow_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        inner_glow_draw = ImageDraw.Draw(inner_glow_layer)
-        inner_glow_opacity = int(255 * 0.50)
-        inner_glow_draw.text((x, y), text, font=font, fill=(255, 204, 0, inner_glow_opacity))
-        inner_glow_layer = inner_glow_layer.filter(ImageFilter.GaussianBlur(radius=2))
-        canvas = Image.alpha_composite(canvas, inner_glow_layer)
-
-        # Layer 1: Main text (orange)
-        main_layer = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-        main_draw = ImageDraw.Draw(main_layer)
+        # Parse colors from config
         main_rgb = self._hex_to_rgb(main_color)
-        main_opacity = int(255 * (opacity / 100))
-        main_draw.text((x, y), text, font=font, fill=(*main_rgb, main_opacity))
-        canvas = Image.alpha_composite(canvas, main_layer)
+        glow_rgb = self._hex_to_rgb(glow_color)
+
+        # Create color gradient from outer glow to core text
+        # Outer glow: Use configured glow color
+        outer_glow_color = glow_rgb
+
+        # Mid glow: Blend 50% between glow and main color
+        mid_color = (
+            (glow_rgb[0] + main_rgb[0]) // 2,
+            (glow_rgb[1] + main_rgb[1]) // 2,
+            (glow_rgb[2] + main_rgb[2]) // 2
+        )
+
+        # Core color: Use configured main color
+        core_color = main_rgb
+
+        # Bright highlight: Lighten main color by 20% for center brightness
+        bright_color = (
+            min(255, int(main_rgb[0] * 1.0 + (255 - main_rgb[0]) * 0.2)),
+            min(255, int(main_rgb[1] * 1.0 + (255 - main_rgb[1]) * 0.2)),
+            min(255, int(main_rgb[2] * 1.0 + (255 - main_rgb[2]) * 0.2))
+        )
+
+        # =================================================================
+        # PROPER TECHNIQUE: Create grayscale masks, then apply colors
+        # This prevents dark edges from antialiasing
+        # =================================================================
+
+        def create_glow_layer(blur_radius: int, color_rgb: Tuple[int, int, int], alpha_multiplier: float):
+            """Create a single glow layer with proper alpha handling."""
+            # Step 1: Create grayscale mask (white text on black background)
+            mask = Image.new('L', (width, height), 0)
+            mask_draw = ImageDraw.Draw(mask)
+            mask_draw.text((x, y), text, font=font, fill=255)
+
+            # Step 2: Blur the mask
+            if blur_radius > 0:
+                mask = mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+
+            # Step 3: Adjust mask opacity
+            if alpha_multiplier < 1.0:
+                mask = mask.point(lambda p: int(p * alpha_multiplier))
+
+            # Step 4: Create colored RGBA image using mask as alpha
+            colored_layer = Image.new('RGBA', (width, height), (*color_rgb, 0))
+            colored_layer.putalpha(mask)
+
+            return colored_layer
+
+        # =================================================================
+        # OUTER GLOW LAYERS - Configurable glow color, wide diffusion
+        # =================================================================
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 4.0), outer_glow_color, 0.35 * glow_factor
+        ))
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 3.0), outer_glow_color, 0.45 * glow_factor
+        ))
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 2.0), mid_color, 0.55 * glow_factor
+        ))
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 1.5), mid_color, 0.65 * glow_factor
+        ))
+
+        # =================================================================
+        # INNER GLOW LAYERS - Orange core, build up brightness
+        # =================================================================
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 1.0), core_color, 0.75 * glow_factor
+        ))
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            int(font_size * 0.5), core_color, 0.85 * glow_factor
+        ))
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            max(1, int(font_size * 0.25)), core_color, 0.95 * glow_factor
+        ))
+
+        # =================================================================
+        # CORE TEXT - Sharp edges for crisp appearance
+        # =================================================================
+
+        # Sharp core text (no blur for crisp edges)
+        core_opacity = (opacity / 100) * 0.9
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            0, core_color, core_opacity
+        ))
+
+        # =================================================================
+        # BRIGHT CENTER HIGHLIGHT - Minimal blur for sharpness
+        # =================================================================
+
+        canvas = self._screen_blend(canvas, create_glow_layer(
+            max(1, int(font_size * 0.05)), bright_color, 0.5
+        ))
 
         return canvas
 
@@ -301,4 +373,53 @@ class DateStampService:
             (R, G, B) tuple
         """
         hex_color = hex_color.lstrip('#')
-        return tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        return (r, g, b)
+
+    @staticmethod
+    def _screen_blend(base: Image.Image, overlay: Image.Image) -> Image.Image:
+        """
+        Blend overlay onto base using Screen blend mode.
+
+        Screen blend simulates light projection - lighter colors have more effect.
+        Formula: Result = 1 - (1 - A) * (1 - B)
+
+        This creates realistic light glow effects where the glow brightens
+        the underlying image rather than just adding semi-transparent color.
+
+        Args:
+            base: Base RGBA image
+            overlay: Overlay RGBA image with alpha channel controlling intensity
+
+        Returns:
+            Blended RGBA image
+        """
+        # Convert to numpy arrays for faster computation
+        base_array = np.array(base, dtype=np.float32) / 255.0
+        overlay_array = np.array(overlay, dtype=np.float32) / 255.0
+
+        # Extract RGB and alpha channels
+        base_rgb = base_array[:, :, :3]
+        base_alpha = base_array[:, :, 3:4]
+        overlay_rgb = overlay_array[:, :, :3]
+        overlay_alpha = overlay_array[:, :, 3:4]
+
+        # Screen blend formula: 1 - (1 - A) * (1 - B)
+        # This simulates light: brighter colors have stronger effect
+        screened_rgb = 1.0 - (1.0 - base_rgb) * (1.0 - overlay_rgb)
+
+        # Blend screened result with base using overlay's alpha
+        # Where overlay is transparent, keep base; where opaque, use screened result
+        result_rgb = base_rgb * (1.0 - overlay_alpha) + screened_rgb * overlay_alpha
+
+        # Combine alpha channels (standard alpha compositing for opacity)
+        result_alpha = base_alpha + overlay_alpha * (1.0 - base_alpha)
+
+        # Combine RGB and alpha
+        result = np.concatenate([result_rgb, result_alpha], axis=2)
+
+        # Convert back to 8-bit and create PIL image
+        result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
+        return Image.fromarray(result, mode='RGBA')
