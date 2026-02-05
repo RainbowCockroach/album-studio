@@ -127,8 +127,19 @@ class ConfigDialog(QDialog):
 
         # Bottom buttons
         button_layout = QHBoxLayout()
+
+        # Export/Import buttons (left side)
+        self.export_btn = QPushButton("Export Config...")
+        self.export_btn.clicked.connect(self.export_config)
+        button_layout.addWidget(self.export_btn)
+
+        self.import_btn = QPushButton("Import Config...")
+        self.import_btn.clicked.connect(self.import_config)
+        button_layout.addWidget(self.import_btn)
+
         button_layout.addStretch()
 
+        # Save/Cancel buttons (right side)
         self.save_btn = QPushButton("Save")
         self.save_btn.clicked.connect(self.save_changes)
         button_layout.addWidget(self.save_btn)
@@ -985,6 +996,93 @@ class ConfigDialog(QDialog):
         )
 
         self.accept()
+
+    def export_config(self):
+        """Export configuration to a file."""
+        filepath, _ = QFileDialog.getSaveFileName(
+            self,
+            "Export Configuration",
+            "album-studio-config.json",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not filepath:
+            return  # User cancelled
+
+        # Ensure .json extension
+        if not filepath.lower().endswith('.json'):
+            filepath += '.json'
+
+        if self.config.export_config(filepath):
+            QMessageBox.information(
+                self, "Export Successful",
+                f"Configuration exported to:\n{filepath}\n\n"
+                "You can import this file on another machine."
+            )
+        else:
+            QMessageBox.warning(
+                self, "Export Failed",
+                "Failed to export configuration. Check file permissions."
+            )
+
+    def import_config(self):
+        """Import configuration from a file."""
+        filepath, _ = QFileDialog.getOpenFileName(
+            self,
+            "Import Configuration",
+            "",
+            "JSON Files (*.json);;All Files (*)"
+        )
+
+        if not filepath:
+            return  # User cancelled
+
+        # Confirm before overwriting
+        reply = QMessageBox.question(
+            self,
+            "Confirm Import",
+            "This will replace your current size groups and settings.\n"
+            "Workspace directory and screen calibration will be preserved.\n\n"
+            "Continue?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        success, message = self.config.import_config(filepath)
+
+        if success:
+            # Reload the dialog with new data
+            self.working_copy_size_groups = copy.deepcopy(self.config.size_groups)
+            self.load_size_groups()
+            self.load_size_costs()
+
+            # Update date stamp fields
+            self.physical_height_spinbox.setValue(
+                self.config.get_setting("date_stamp_physical_height", 0.5))
+            self.format_input.setText(
+                self.config.get_setting("date_stamp_format", "YY.MM.DD"))
+            self.position_combo.setCurrentText(
+                self.config.get_setting("date_stamp_position", "bottom-right"))
+            self.outer_temp_slider.setValue(
+                self.config.get_setting("date_stamp_temp_outer", 1800))
+            self.core_temp_slider.setValue(
+                self.config.get_setting("date_stamp_temp_core", 6500))
+            self.glow_spinbox.setValue(
+                self.config.get_setting("date_stamp_glow_intensity", 80))
+            self.margin_spinbox.setValue(
+                self.config.get_setting("date_stamp_margin", 30))
+            self.opacity_spinbox.setValue(
+                self.config.get_setting("date_stamp_opacity", 90))
+            self._update_gradient_preview()
+
+            QMessageBox.information(
+                self, "Import Successful",
+                message + "\n\nThe dialog has been refreshed with imported settings."
+            )
+        else:
+            QMessageBox.warning(self, "Import Failed", message)
 
 
 class AddSizeDialog(QDialog):
