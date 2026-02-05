@@ -1,6 +1,8 @@
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                              QMessageBox, QApplication, QProgressDialog)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
+import subprocess
+import platform
 from .widgets.toolbar_top import ProjectToolbar
 from .widgets.image_grid import ImageGrid
 from .widgets.toolbar_bottom import ToolbarBottom
@@ -775,6 +777,13 @@ class MainWindow(QMainWindow):
             if self.current_project:
                 self.project_manager.save_project(self.current_project)
 
+            # Play completion sound
+            QApplication.beep()
+
+            # Open output folder
+            if self.current_project:
+                self._open_folder(self.current_project.output_folder)
+
             QMessageBox.information(
                 self,
                 "Crop Complete",
@@ -1004,6 +1013,19 @@ class MainWindow(QMainWindow):
         dialog.exec()
 
     # ==================== Update Methods ====================
+
+    def _open_folder(self, folder_path: str):
+        """Open a folder in the system file explorer."""
+        try:
+            system = platform.system()
+            if system == "Darwin":  # macOS
+                subprocess.run(["open", folder_path], check=True)
+            elif system == "Windows":
+                subprocess.run(["explorer", folder_path], check=True)
+            else:  # Linux and others
+                subprocess.run(["xdg-open", folder_path], check=True)
+        except Exception as e:
+            print(f"Failed to open folder: {e}")
 
     def _check_for_updates(self):
         """Check for updates in background."""
