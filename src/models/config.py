@@ -13,7 +13,7 @@ def generate_random_color() -> str:
     s = 0.6 + random.random() * 0.4  # 60-100% saturation
     v = 0.7 + random.random() * 0.2  # 70-90% brightness
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
 class Config:
@@ -392,6 +392,74 @@ class Config:
             "date_stamp_temp_outer": 1800,  # Outer glow temperature in Kelvin (warmer, 1000-4000)
             "date_stamp_temp_core": 6500,  # Core text temperature in Kelvin (hotter, 4000-10000)
             "date_stamp_glow_intensity": 80,  # 0-100
-            "date_stamp_margin": 30,  # pixels from edge
             "date_stamp_opacity": 90  # 0-100
         }
+
+    # ========== Config Export/Import ==========
+
+    def export_config(self, filepath: str) -> bool:
+        """Export all configuration to a single JSON file.
+
+        Args:
+            filepath: Path to save the exported config file.
+
+        Returns:
+            True if export succeeded, False otherwise.
+        """
+        try:
+            # Build export data with version for future compatibility
+            export_data = {
+                "version": 1,
+                "size_groups": self.size_groups,
+                "settings": self.settings
+            }
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(export_data, f, indent=2, ensure_ascii=False)
+
+            return True
+        except Exception as e:
+            print(f"Error exporting config: {e}")
+            return False
+
+    def import_config(self, filepath: str) -> tuple[bool, str]:
+        """Import configuration from a single JSON file.
+
+        Args:
+            filepath: Path to the config file to import.
+
+        Returns:
+            Tuple of (success: bool, message: str).
+        """
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                import_data = json.load(f)
+
+            # Validate version
+            version = import_data.get("version", 0)
+            if version < 1:
+                return False, "Invalid config file format (missing version)."
+
+            # Import size_groups
+            if "size_groups" in import_data:
+                self.size_groups = self._migrate_size_group_data(import_data["size_groups"])
+                self.save_size_groups()
+
+            # Import settings (merge with existing to preserve machine-specific settings)
+            if "settings" in import_data:
+                imported_settings = import_data["settings"]
+
+                # Preserve machine-specific settings that shouldn't be overwritten
+                machine_specific_keys = ["workspace_directory", "pixels_per_unit"]
+                for key in machine_specific_keys:
+                    if key in self.settings:
+                        imported_settings[key] = self.settings[key]
+
+                self.settings = imported_settings
+                self.save_settings()
+
+            return True, "Configuration imported successfully."
+        except json.JSONDecodeError:
+            return False, "Invalid JSON file. Please select a valid config file."
+        except Exception as e:
+            return False, f"Error importing config: {e}"

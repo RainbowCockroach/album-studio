@@ -232,7 +232,7 @@ class UpdateService:
                 parts = app_path.split(os.sep)
                 for i, part in enumerate(parts):
                     if part.endswith(".app"):
-                        app_path = os.sep.join(parts[:i+1])
+                        app_path = os.sep.join(parts[:i + 1])
                         break
         else:
             # Running from source - can't auto-update
@@ -363,7 +363,8 @@ del "%~f0"
             ["cmd", "/c", script_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS  # type: ignore[attr-defined]
+            # type: ignore[attr-defined]
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
         )
 
         print(f"[UpdateService] Update script launched: {script_path}")

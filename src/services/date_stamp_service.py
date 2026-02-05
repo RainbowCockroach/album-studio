@@ -3,7 +3,7 @@
 import os
 import math
 from datetime import datetime
-from typing import List, Optional, Tuple, Union, cast
+from typing import Optional, Tuple, Union, cast
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
 from ..models.config import Config
@@ -56,31 +56,6 @@ def kelvin_to_rgb(temperature: int) -> Tuple[int, int, int]:
     return (int(red), int(green), int(blue))
 
 
-def generate_temperature_gradient(
-    temp_outer: int,
-    temp_core: int,
-    num_steps: int = 9
-) -> List[Tuple[int, int, int]]:
-    """
-    Generate a color gradient based on color temperature range.
-
-    Args:
-        temp_outer: Temperature for outer glow (warmest, e.g., 1800K)
-        temp_core: Temperature for core text (hottest, e.g., 6500K)
-        num_steps: Number of colors in the gradient
-
-    Returns:
-        List of RGB tuples from outer (warm) to core (hot)
-    """
-    gradient = []
-    for i in range(num_steps):
-        # Interpolate temperature from outer to core
-        t = i / (num_steps - 1) if num_steps > 1 else 1.0
-        temp = temp_outer + (temp_core - temp_outer) * t
-        gradient.append(kelvin_to_rgb(int(temp)))
-    return gradient
-
-
 class DateStampService:
     """Service for rendering vintage film camera-style date stamps on images."""
 
@@ -110,10 +85,12 @@ class DateStampService:
         # Get settings
         date_format = cast(str, self.config.get_setting("date_stamp_format", "'YY.MM.DD"))
         position = cast(str, self.config.get_setting("date_stamp_position", "bottom-right"))
-        margin = cast(int, self.config.get_setting("date_stamp_margin", 30))
 
         # Calculate font size based on physical dimensions and image size
         font_size = self._calculate_font_size(size_tag, image.height)
+
+        # Auto-calculate margin based on font size (50% of font height)
+        margin = max(10, int(font_size * 0.5))
 
         # Format the date string
         date_str = self._format_date(date, date_format)
@@ -272,17 +249,18 @@ class DateStampService:
         margin: int
     ) -> Image.Image:
         """
-        Create multi-layer date stamp with physics-based warm-edge glow effect.
+        Create date stamp simulating backlit film camera projection effect.
 
-        Uses a blackbody-inspired color temperature gradient:
-        - Outer edges: Cooler temperature = warmer/redder colors (subsurface scattering)
-        - Inner core: Hotter temperature = brighter/yellower colors (light emission)
+        Real film camera date stamps work by projecting light through a mask
+        from BEHIND the film, creating:
+        - Sharp, well-defined text segments
+        - Very tight rim glow (1-3 pixels) from light scatter at edges
+        - Warm color from incandescent bulb + film's orange base
 
-        The outer layers use Linear Dodge (Add) blend mode for saturated edges,
-        while inner layers use Screen blend for light projection effect.
-
-        This accurately simulates how light passing through film substrate
-        creates warm-shifted edges due to scattering and absorption.
+        This implementation uses:
+        1. Morphological dilation to create consistent thin rim
+        2. Tiny blur for subtle edge glow (not wide diffuse spread)
+        3. Temperature gradient: warm rim → bright core
 
         Args:
             image_size: Size of the target image (width, height)
@@ -297,19 +275,18 @@ class DateStampService:
         width, height = image_size
 
         # Get settings
-        glow_intensity = cast(int, self.config.get_setting("date_stamp_glow_intensity", 80) or 80)
-        opacity = cast(int, self.config.get_setting("date_stamp_opacity", 90) or 90)
+        glow_intensity = cast(int, self.config.get_setting("date_stamp_glow_intensity", 80) or 80) / 100.0
+        opacity = cast(int, self.config.get_setting("date_stamp_opacity", 90) or 90) / 100.0
         temp_outer = cast(int, self.config.get_setting("date_stamp_temp_outer", 1800) or 1800)
         temp_core = cast(int, self.config.get_setting("date_stamp_temp_core", 6500) or 6500)
 
-        # Generate color gradient from temperature range
-        gradient = generate_temperature_gradient(temp_outer, temp_core, num_steps=9)
+        # Get colors from temperature settings
+        outer_rgb = np.array(kelvin_to_rgb(temp_outer), dtype=np.float32)
+        core_rgb = np.array(kelvin_to_rgb(temp_core), dtype=np.float32)
 
-        # Create transparent canvas
-        canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
-
-        # Get text bounding box using temporary draw object
-        temp_draw = ImageDraw.Draw(canvas)
+        # Create temporary canvas to measure text
+        temp_canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
+        temp_draw = ImageDraw.Draw(temp_canvas)
         bbox = temp_draw.textbbox((0, 0), text, font=font)
         text_width = int(bbox[2] - bbox[0])
         text_height = int(bbox[3] - bbox[1])
@@ -321,100 +298,103 @@ class DateStampService:
             position, margin
         )
 
-        # Normalize glow intensity (0-100 to 0-1)
-        glow_factor = glow_intensity / 100.0
-
         # Get font size for proportional scaling
         font_size = getattr(font, 'size', text_height)
 
-        # =================================================================
-        # LAYER DEFINITION: Physics-based color temperature gradient
-        # Each layer has: (blur_multiplier, gradient_position, alpha, use_linear_dodge)
-        #
-        # gradient_position: 0.0 = outermost (warmest, temp_outer)
-        #                    1.0 = core (hottest, temp_core)
-        #
-        # Outer layers use Linear Dodge for saturated warm edges
-        # Inner layers use Screen for light projection
-        # =================================================================
+        # =====================================================================
+        # STEP 1: Create sharp text mask (the core segments)
+        # =====================================================================
+        text_mask = Image.new('L', (width, height), 0)
+        text_draw = ImageDraw.Draw(text_mask)
+        text_draw.text((x, y), text, font=font, fill=255)
+        text_array = np.array(text_mask, dtype=np.float32) / 255.0
 
-        layers = [
-            # OUTER GLOW - Linear Dodge for saturated warm edges
-            # These create the characteristic warm bleed at the transition zone
-            (6.0, 0.0, 0.20, True),   # Extreme outer - warmest
-            (5.0, 0.1, 0.25, True),   # Very wide
-            (4.0, 0.2, 0.30, True),   # Wide
-            (3.5, 0.3, 0.35, True),   # Medium-wide - transitioning
+        # =====================================================================
+        # STEP 2: Create rim using morphological dilation
+        # This simulates the tight glow from backlit projection
+        # Rim width scales with font size (about 2-4% of font height)
+        # =====================================================================
+        rim_width = max(1, int(font_size * 0.04))  # Tight rim, ~4% of font size
 
-            # TRANSITION ZONE - Switch to Screen, colors getting hotter
-            (3.0, 0.4, 0.40, False),  # Medium
-            (2.5, 0.5, 0.50, False),  # Medium-inner
-            (2.0, 0.55, 0.55, False), # Inner-wide
+        # Dilate text mask to expand edges
+        dilated_mask = text_mask.filter(ImageFilter.MaxFilter(size=rim_width * 2 + 1))
+        dilated_array = np.array(dilated_mask, dtype=np.float32) / 255.0
 
-            # INNER GLOW - Screen mode, building brightness
-            (1.5, 0.65, 0.60, False), # Inner
-            (1.0, 0.75, 0.70, False), # Close
-            (0.5, 0.85, 0.80, False), # Near
-            (0.25, 0.92, 0.85, False),# Very near
+        # Apply tiny blur to dilated mask for soft edge (not sharp cutoff)
+        blur_radius = max(1, int(font_size * 0.02))  # Very small blur
+        dilated_blurred = dilated_mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        dilated_blurred_array = np.array(dilated_blurred, dtype=np.float32) / 255.0
 
-            # CORE - Sharp text with hottest color
-            (0.0, 0.95, 0.90, False), # Core text - bright
-            (0.05, 1.0, 0.50, False), # Highlight - hottest center
-        ]
+        # =====================================================================
+        # STEP 3: Create intensity map with gradient from rim to core
+        # - Rim area: lower intensity (warm color)
+        # - Core area: HIGH intensity (bright, sharp)
+        # =====================================================================
 
-        def create_glow_layer(
-            blur_radius: int,
-            color_rgb: Tuple[int, int, int],
-            alpha_multiplier: float
-        ) -> Image.Image:
-            """Create a single glow layer with proper alpha handling."""
-            # Step 1: Create grayscale mask (white text on black background)
-            mask = Image.new('L', (width, height), 0)
-            mask_draw = ImageDraw.Draw(mask)
-            mask_draw.text((x, y), text, font=font, fill=255)
+        # Rim = dilated area minus the sharp text
+        rim_only = np.clip(dilated_blurred_array - text_array, 0, 1)
 
-            # Step 2: Blur the mask
-            if blur_radius > 0:
-                mask = mask.filter(ImageFilter.GaussianBlur(radius=blur_radius))
+        # Rim gets partial intensity for warm color (0.3-0.5 range)
+        rim_intensity = rim_only * 0.4
 
-            # Step 3: Adjust mask opacity
-            if alpha_multiplier < 1.0:
-                mask = mask.point(lambda p: int(p * alpha_multiplier))
+        # Add subtle outer halo beyond the rim
+        outer_blur_radius = max(1, int(font_size * 0.03))
+        outer_glow = text_mask.filter(ImageFilter.GaussianBlur(radius=outer_blur_radius))
+        outer_glow_array = np.array(outer_glow, dtype=np.float32) / 255.0
+        outer_only = np.clip(outer_glow_array - dilated_array, 0, 1)
+        outer_intensity = outer_only * 0.2
 
-            # Step 4: Create colored RGBA image using mask as alpha
-            colored_layer = Image.new('RGBA', (width, height), (*color_rgb, 0))
-            colored_layer.putalpha(mask)
+        # Combine rim and outer halo
+        glow_intensity_map = np.maximum(rim_intensity, outer_intensity)
 
-            return colored_layer
+        # Core gets FULL intensity (1.0) - this is the sharp text
+        # Use the original sharp text mask, NOT blurred
+        core_intensity = text_array * 1.0
 
-        # Build each layer with temperature-based color and appropriate blend mode
-        for blur_mult, grad_pos, alpha, use_linear_dodge in layers:
-            # Calculate blur radius from multiplier
-            blur_radius = int(font_size * blur_mult) if blur_mult > 0 else 0
-            blur_radius = max(blur_radius, 1) if blur_mult > 0 else 0
+        # Final intensity: glow provides warm rim, core provides bright center
+        intensity = np.maximum(glow_intensity_map, core_intensity)
 
-            # Get color from temperature gradient
-            color = self._get_gradient_color(gradient, grad_pos)
+        # =====================================================================
+        # STEP 4: Map intensity to color using temperature gradient
+        # Low intensity (rim/edge) → outer temperature (warm orange)
+        # High intensity (core) → core temperature (bright)
+        # =====================================================================
+        intensity_3d = intensity[:, :, np.newaxis]
+        colors = outer_rgb + (core_rgb - outer_rgb) * intensity_3d
 
-            # Calculate final alpha with glow intensity
-            final_alpha = alpha * glow_factor
+        # =====================================================================
+        # STEP 5: Boost core brightness
+        # Add extra brightness to the sharp text center for "hot" look
+        # =====================================================================
+        # Brighten the core by blending toward white where text is solid
+        brightness_boost = 1.3  # 30% brighter in core
+        core_boost = text_array[:, :, np.newaxis] * (brightness_boost - 1.0)
+        colors = colors + core_boost * colors  # Multiplicative boost
+        colors = np.clip(colors, 0, 255)
 
-            # Apply opacity setting to core layers (last two)
-            if blur_mult <= 0.05:
-                final_alpha *= (opacity / 100.0)
+        # =====================================================================
+        # STEP 6: Calculate alpha
+        # Sharp core = full opacity, rim = partial opacity
+        # =====================================================================
+        # Core (sharp text) gets full alpha for crisp edges
+        core_alpha = text_array * 1.0
 
-            # Create the layer
-            layer = create_glow_layer(blur_radius, color, final_alpha)
+        # Rim and outer glow get reduced alpha
+        glow_alpha = np.maximum(rim_only * 0.7, outer_only * 0.4)
 
-            # Blend using appropriate mode
-            if use_linear_dodge:
-                # Linear Dodge for outer layers - creates saturated warm edges
-                canvas = self._linear_dodge_blend(canvas, layer)
-            else:
-                # Screen for inner layers - light projection effect
-                canvas = self._screen_blend(canvas, layer)
+        # Combine: core dominates, glow surrounds
+        alpha_base = np.maximum(core_alpha, glow_alpha)
+        alpha = alpha_base * glow_intensity * opacity
 
-        return canvas
+        # =====================================================================
+        # STEP 6: Assemble final RGBA image
+        # =====================================================================
+        result = np.zeros((height, width, 4), dtype=np.float32)
+        result[:, :, :3] = colors
+        result[:, :, 3] = alpha * 255
+
+        result = np.clip(result, 0, 255).astype(np.uint8)
+        return Image.fromarray(result, mode='RGBA')
 
     def _calculate_position(
         self,
@@ -521,90 +501,3 @@ class DateStampService:
         result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
         return Image.fromarray(result, mode='RGBA')
 
-    @staticmethod
-    def _linear_dodge_blend(base: Image.Image, overlay: Image.Image) -> Image.Image:
-        """
-        Blend overlay onto base using Linear Dodge (Add) blend mode.
-
-        Linear Dodge simply adds the pixel values, creating intense, saturated
-        glow effects at edges. This produces more saturated colors than Screen
-        mode, making glows appear "hotter" and more luminous.
-
-        Formula: Result = A + B (clamped to 1.0)
-
-        This is ideal for outer glow layers where we want that characteristic
-        saturated warm edge that real light emissions have.
-
-        Args:
-            base: Base RGBA image
-            overlay: Overlay RGBA image with alpha channel controlling intensity
-
-        Returns:
-            Blended RGBA image
-        """
-        # Convert to numpy arrays for faster computation
-        base_array = np.array(base, dtype=np.float32) / 255.0
-        overlay_array = np.array(overlay, dtype=np.float32) / 255.0
-
-        # Extract RGB and alpha channels
-        base_rgb = base_array[:, :, :3]
-        base_alpha = base_array[:, :, 3:4]
-        overlay_rgb = overlay_array[:, :, :3]
-        overlay_alpha = overlay_array[:, :, 3:4]
-
-        # Linear Dodge (Add) formula: A + B
-        # This creates intense, saturated edges - key for "hot" glow look
-        added_rgb = base_rgb + overlay_rgb
-
-        # Blend added result with base using overlay's alpha
-        result_rgb = base_rgb * (1.0 - overlay_alpha) + added_rgb * overlay_alpha
-
-        # Clamp to valid range (addition can exceed 1.0)
-        result_rgb = np.clip(result_rgb, 0.0, 1.0)
-
-        # Combine alpha channels (standard alpha compositing)
-        result_alpha = base_alpha + overlay_alpha * (1.0 - base_alpha)
-
-        # Combine RGB and alpha
-        result = np.concatenate([result_rgb, result_alpha], axis=2)
-
-        # Convert back to 8-bit and create PIL image
-        result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
-        return Image.fromarray(result, mode='RGBA')
-
-    @staticmethod
-    def _get_gradient_color(
-        gradient: List[Tuple[int, int, int]],
-        position: float
-    ) -> Tuple[int, int, int]:
-        """
-        Interpolate a color from a gradient based on position.
-
-        Args:
-            gradient: List of RGB tuples representing the gradient
-            position: Position in gradient, 0.0 = first color, 1.0 = last color
-
-        Returns:
-            Interpolated RGB tuple
-        """
-        if position <= 0.0:
-            return gradient[0]
-        if position >= 1.0:
-            return gradient[-1]
-
-        # Find the two colors to interpolate between
-        num_colors = len(gradient)
-        scaled_pos = position * (num_colors - 1)
-        lower_idx = int(scaled_pos)
-        upper_idx = min(lower_idx + 1, num_colors - 1)
-        t = scaled_pos - lower_idx  # Interpolation factor
-
-        # Linear interpolation between the two colors
-        c1 = gradient[lower_idx]
-        c2 = gradient[upper_idx]
-
-        return (
-            int(c1[0] + (c2[0] - c1[0]) * t),
-            int(c1[1] + (c2[1] - c1[1]) * t),
-            int(c1[2] + (c2[2] - c1[2]) * t),
-        )

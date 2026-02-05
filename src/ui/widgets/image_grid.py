@@ -255,7 +255,7 @@ class ImageGrid(QWidget):
     def enter_preview_mode(self):
         """Enter crop preview mode for all fully tagged images."""
         if self.selection_mode:
-            return # Don't enter preview if in selection mode
+            return  # Don't enter preview if in selection mode
 
         self.preview_mode = True
         for image_item, widget in self.image_widgets.items():
@@ -617,7 +617,7 @@ class ImageWidget(QFrame):
             analysis_img = img
             scale_factor = 1.0
             MAX_ANALYSIS_SIZE = 600
-            
+
             if image_width > MAX_ANALYSIS_SIZE or image_height > MAX_ANALYSIS_SIZE:
                 analysis_img = img.copy()
                 analysis_img.thumbnail((MAX_ANALYSIS_SIZE, MAX_ANALYSIS_SIZE), Image.Resampling.LANCZOS)
@@ -644,7 +644,7 @@ class ImageWidget(QFrame):
             # We must scale target dimensions down for the analysis image
             analysis_target_width = int(target_width / scale_factor)
             analysis_target_height = int(target_height / scale_factor)
-            
+
             # Smart crop on smaller image
             sc = smartcrop.SmartCrop()
             result = sc.crop(analysis_img, analysis_target_width, analysis_target_height)
@@ -674,7 +674,7 @@ class ImageWidget(QFrame):
             # Optimize: Get dimensions without loading full pixmap
             # This is much faster for HEIC support
             img_width, img_height = ImageLoader.get_image_dimensions(self.image_item.file_path)
-            
+
             if img_width == 0 or img_height == 0:
                 self._set_centered_crop()
                 return
@@ -752,7 +752,7 @@ class ImageWidget(QFrame):
 
                 # Optimize: Get dimensions without loading full pixmap
                 img_width, img_height = ImageLoader.get_image_dimensions(self.image_item.file_path)
-                
+
                 if img_width == 0 or img_height == 0:
                     return
 

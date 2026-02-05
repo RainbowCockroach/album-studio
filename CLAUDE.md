@@ -302,17 +302,17 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 ### Date Stamp Rendering
 
-- Uses physics-based blackbody color temperature gradient for authentic warm-edge glow
-- Color temperature configurable: outer glow (1000-4000K) and core text (4000-10000K)
+- Simulates backlit film camera date stamp projection (light through mask from behind film)
+- Color temperature configurable: outer rim (1000-4000K) and core text (4000-10000K)
 - `kelvin_to_rgb()` function converts temperature to accurate RGB using Planckian locus approximation
 - Font size automatically scales based on physical print dimensions to maintain consistent appearance across different print sizes
-- 13-layer rendering with dual blend modes:
-  - Outer layers (4): Linear Dodge (Add) for saturated warm edges at configured outer temperature
-  - Transition layers (3): Screen blend - interpolated between outer and core temperatures
-  - Inner layers (4): Screen blend - approaching core temperature
-  - Core layers (2): Screen blend - at configured core temperature
-- Gaussian blur radii scale proportionally to font size (6x to 0.05x font size)
-- Linear Dodge creates characteristic saturated warm bleed at transition zone
+- Tight rim glow approach (mimics real film camera effect):
+  1. Create sharp text mask (core segments)
+  2. Morphological dilation creates consistent thin rim (~4% of font size)
+  3. Tiny blur for soft edge transition (~2% of font size)
+  4. Temperature gradient: warm rim color → bright core color
+  5. Blend onto image with Screen mode once
+- Rim width scales with font size for consistent appearance across print sizes
 - DSEG7 Classic font provides authentic digital display appearance (7-segment LED style)
 - Thumbnail preview uses simplified solid-color rendering (for size preview only)
 - Config dialog provides temperature sliders with visual gradient preview
@@ -468,6 +468,50 @@ No automated test suite currently exists. Manual testing workflow:
 4. Check console for `[DEBUG]` logs when issues occur
 
 Debug logs are extensive throughout similarity search and archival processes.
+
+## Code Quality and Linting
+
+**CRITICAL:** Always lint modified files when a task is finished (when the user confirms the task is complete). This ensures code quality and catches potential issues before committing.
+
+### Type Checking
+
+The project uses Pyright and mypy for type checking with relaxed settings suitable for PyQt6:
+
+```bash
+# Type check with Pyright (configured in pyrightconfig.json)
+pyright src/
+
+# Type check specific files
+pyright src/services/crop_service.py
+
+# Type check with mypy (configured in mypy.ini)
+mypy src/
+```
+
+Type checking configuration:
+- Missing imports flagged as errors
+- Unused imports and variables flagged
+- Optional access patterns flagged as warnings
+- Third-party libraries without stubs (pillow-heif, piexif, smartcrop, torch) have ignore rules in mypy.ini
+
+### Linting Workflow
+
+When you finish implementing a task (user confirms completion):
+
+1. **Type check the modified files:**
+   ```bash
+   pyright src/path/to/modified_file.py
+   ```
+
+2. **Check for common issues:**
+   - Unused imports
+   - Undefined variables
+   - Type mismatches
+   - Missing imports
+
+3. **Fix any issues found** before considering the task complete
+
+This step is mandatory for all code changes to maintain code quality and prevent runtime errors.
 
 ## File Structure
 

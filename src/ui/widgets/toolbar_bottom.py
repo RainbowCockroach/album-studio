@@ -30,7 +30,7 @@ class ToolbarBottom(QWidget):
         self.config_btn.setToolTip("Configure size groups and sizes")
         self.config_btn.clicked.connect(self.on_config_clicked)
         layout.addWidget(self.config_btn)
-        
+
         # Detail toggle button
         self.detail_btn = QPushButton("Show detail")
         self.detail_btn.setCheckable(True)
@@ -87,7 +87,7 @@ class ToolbarBottom(QWidget):
         pal = self.cancel_btn.palette()
         pal.setColor(QPalette.ColorRole.Button, QColor("yellow"))
         self.cancel_btn.setPalette(pal)
-        self.cancel_btn.setAutoFillBackground(True) 
+        self.cancel_btn.setAutoFillBackground(True)
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         self.cancel_btn.hide()
         layout.addWidget(self.cancel_btn)
@@ -113,7 +113,7 @@ class ToolbarBottom(QWidget):
         self.save_btn.setEnabled(enabled)
         self.rotate_btn.setEnabled(enabled)
 
-    #region | Group + size dropdowns
+    # region | Group + size dropdowns
     def load_size_group(self):
         """Load size group list from config."""
         size_group_names = self.config.get_size_group_names()
@@ -137,22 +137,22 @@ class ToolbarBottom(QWidget):
             self.size_combo.addItem(alias, userData=size_ratio)
 
         self.on_size_changed()
-    
+
     def on_size_changed(self):
         """Emit signal when tags change."""
         album = self.size_group_combo.currentText()
         size = self.size_combo.currentText()
         self.tags_changed.emit(album, size)
-    
+
     def get_selected_tags(self) -> tuple:
         """Get currently selected album and size ratio."""
         album = self.size_group_combo.currentText()
         # Get the size ratio from user data, not the display text (alias)
         size_ratio = self.size_combo.currentData()
         return (album, size_ratio if size_ratio else "")
-    #endregion
+    # endregion
 
-    #region | Crop buttons
+    # region | Crop buttons
     def on_crop_clicked(self):
         """Handle crop button click - enter preview mode."""
         self.crop_requested.emit()
@@ -179,35 +179,35 @@ class ToolbarBottom(QWidget):
         self.cancel_btn.hide()
         self.save_btn.hide()
         self.crop_btn.show()
-    #endregion
+    # endregion
 
-    #region | Config button
+    # region | Config button
     def on_config_clicked(self):
         """Handle config button click."""
         self.config_requested.emit()
-    #endregion
-    
-    #region | Detail button
+    # endregion
+
+    # region | Detail button
     def on_detail_toggled(self, checked: bool):
         """Handle detail button toggle."""
         self.detail_btn.setText("Hide detail" if checked else "Show detail")
         self.detail_toggled.emit(checked)
-    #endregion
+    # endregion
 
-    #region | Find Similar button
+    # region | Find Similar button
     def on_find_similar_clicked(self):
         """Handle find similar button click."""
         self.find_similar_requested.emit()
-    #endregion
+    # endregion
 
-    #region | Rotate button
+    # region | Rotate button
     def on_rotate_clicked(self):
         """Handle rotate button click."""
         self.rotate_requested.emit()
-    #endregion
+    # endregion
 
-    #region | Date Stamp buttons
+    # region | Date Stamp buttons
     def on_preview_stamp_clicked(self):
         """Handle preview stamp button click."""
         self.preview_stamp_requested.emit()
-    #endregion
+    # endregion

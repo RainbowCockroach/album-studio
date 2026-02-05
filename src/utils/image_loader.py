@@ -8,6 +8,7 @@ import pillow_heif
 # Register HEIC opener with Pillow
 pillow_heif.register_heif_opener()
 
+
 class ImageLoader:
     """Utility class for robust image loading, supporting HEIC and other formats."""
 
@@ -66,8 +67,8 @@ class ImageLoader:
             if not pixmap.isNull():
                 if max_size:
                     return pixmap.scaled(max_size, max_size,
-                                       aspectRatioMode=Qt.AspectRatioMode.KeepAspectRatio,
-                                       transformMode=Qt.TransformationMode.SmoothTransformation)
+                                         aspectRatioMode=Qt.AspectRatioMode.KeepAspectRatio,
+                                         transformMode=Qt.TransformationMode.SmoothTransformation)
                 return pixmap
 
         # Fallback to Pillow (handles HEIC and others QPixmap might miss)
@@ -101,7 +102,7 @@ class ImageLoader:
         except Exception as e:
             print(f"Error loading image with Pillow: {file_path} - {e}")
             return QPixmap()
-            
+
     @staticmethod
     def is_heic(file_path: str) -> bool:
         """Check if file path suggests a HEIC image."""

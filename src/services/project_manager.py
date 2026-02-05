@@ -164,7 +164,11 @@ class ProjectManager:
             if total_cleared > 0:
                 self.save_project(project)
 
-    def archive_project(self, project_name: str, workspace_dir: Optional[str] = None, thumbnail_size: int = 800) -> dict:
+    def archive_project(
+            self,
+            project_name: str,
+            workspace_dir: Optional[str] = None,
+            thumbnail_size: int = 800) -> dict:
         """Archive a project by:
         1. Creating thumbnails of all output folder images → save to '_past_printed' folder at workspace root
         2. Zipping the output folder → save to workspace root

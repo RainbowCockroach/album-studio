@@ -97,8 +97,13 @@ class CropService:
             print(f"Error calculating crop box for {image_path}: {e}")
             return None
 
-
-    def crop_image(self, image_path: str, size_tag: str, output_path: str, manual_crop_box: Optional[dict] = None, image_item=None) -> bool:
+    def crop_image(
+            self,
+            image_path: str,
+            size_tag: str,
+            output_path: str,
+            manual_crop_box: Optional[dict] = None,
+            image_item=None) -> bool:
         """
         Crop a single image using manual crop box or smartcrop.
         If manual_crop_box is provided, uses it; otherwise uses smartcrop.

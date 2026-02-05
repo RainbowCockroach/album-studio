@@ -183,8 +183,8 @@ class ImageViewerDialog(QDialog):
         """Load the image at full resolution, cropped if tagged."""
         # Check if we should display cropped version
         should_crop = (self.image_item is not None and
-                      self.image_item.is_fully_tagged() and
-                      self.config is not None)
+                       self.image_item.is_fully_tagged() and
+                       self.config is not None)
 
         if should_crop:
             # Load cropped version using CropService
@@ -323,7 +323,8 @@ class ImageViewerDialog(QDialog):
                     mode_info = "[REAL SIZE MODE]"
                 self.hint_label.setText(f"{date_stamp_indicator}{mode_info} | Press R for normal view | {base_hint}")
             else:
-                self.hint_label.setText(f"{date_stamp_indicator}[Normal View] | Press R for real-size preview | {base_hint}")
+                self.hint_label.setText(
+                    f"{date_stamp_indicator}[Normal View] | Press R for real-size preview | {base_hint}")
         else:
             self.hint_label.setText(f"{date_stamp_indicator}{base_hint}")
 
