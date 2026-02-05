@@ -14,7 +14,7 @@ class DateStampPreviewOverlay(QLabel):
         self.date_text = ""
         self.position = "bottom-right"
         self.color = "#FF7700"
-        self.margin = 5  # Scaled down margin for thumbnail
+        self.stamp_margin = 5  # Scaled down margin for thumbnail
         self.font_size = 10  # Scaled down font size for thumbnail
 
         # Make overlay transparent to mouse events so clicks pass through
@@ -43,12 +43,11 @@ class DateStampPreviewOverlay(QLabel):
 
         # Scale margin for thumbnail (original margin / typical image size * thumbnail size)
         original_margin = config.get_setting("date_stamp_margin", 30)
-        self.margin = int(original_margin * thumbnail_size / 2000)  # Assume ~2000px typical image
+        self.stamp_margin = int(original_margin * thumbnail_size / 2000)  # Assume ~2000px typical image
 
         # Calculate font size for thumbnail
         # This is a simplified calculation - just scale based on thumbnail size
         physical_height = config.get_setting("date_stamp_physical_height", 0.2)
-        pixels_per_unit = config.get_setting("date_stamp_target_dpi", 300)
 
         # Parse size tag to get dimensions
         try:
@@ -101,21 +100,21 @@ class DateStampPreviewOverlay(QLabel):
         widget_height = self.height()
 
         if self.position == "bottom-right":
-            x = widget_width - text_width - self.margin
-            y = widget_height - self.margin
+            x = widget_width - text_width - self.stamp_margin
+            y = widget_height - self.stamp_margin
         elif self.position == "bottom-left":
-            x = self.margin
-            y = widget_height - self.margin
+            x = self.stamp_margin
+            y = widget_height - self.stamp_margin
         elif self.position == "top-right":
-            x = widget_width - text_width - self.margin
-            y = text_height + self.margin
+            x = widget_width - text_width - self.stamp_margin
+            y = text_height + self.stamp_margin
         elif self.position == "top-left":
-            x = self.margin
-            y = text_height + self.margin
+            x = self.stamp_margin
+            y = text_height + self.stamp_margin
         else:
             # Default to bottom-right
-            x = widget_width - text_width - self.margin
-            y = widget_height - self.margin
+            x = widget_width - text_width - self.stamp_margin
+            y = widget_height - self.stamp_margin
 
         # Draw glow effect (simplified - just one layer)
         glow_color = QColor(self.color)

@@ -359,14 +359,13 @@ class ImageViewerDialog(QDialog):
 
         try:
             # Get size dimensions from tag (e.g., "9x6" -> (9, 6))
-            width_units, height_units = Config.parse_size_dimensions(self.image_item.size_tag)
+            width_units, _height_units = Config.parse_size_dimensions(self.image_item.size_tag)
 
             # Get pixels per unit from config
             ppu = self.config.get_setting("pixels_per_unit", 100)
 
             # Calculate target display size in pixels
             target_width = width_units * ppu
-            target_height = height_units * ppu
 
             # Calculate zoom factor based on the loaded pixmap dimensions
             # The pixmap is already cropped to the correct aspect ratio
