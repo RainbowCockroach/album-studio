@@ -385,7 +385,6 @@ class Config:
             "size_colors": {},  # Maps size ratio (e.g., "5x7") to color (hex string)
             "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)
             # Date stamp settings
-            "date_stamp_enabled": True,
             "date_stamp_format": "YY.MM.DD",
             "date_stamp_physical_height": 0.2,  # units (same as size tag units)
             "date_stamp_target_dpi": 300,  # pixels per unit (resolution)

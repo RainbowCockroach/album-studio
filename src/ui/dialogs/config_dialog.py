@@ -4,7 +4,7 @@ from PyQt6.QtWidgets import (
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox, QTabWidget, QFrame, QSpinBox, QSlider,
-    QListWidgetItem, QColorDialog
+    QListWidgetItem, QColorDialog, QFormLayout, QComboBox
 )
 from PyQt6.QtCore import Qt, QLocale
 from PyQt6.QtGui import QPainter, QColor, QPen, QLinearGradient, QBrush
@@ -82,6 +82,19 @@ class ConfigDialog(QDialog):
 
         self.setWindowTitle("Size Group Configuration")
         self.resize(800, 500)
+
+        # Date stamp widget attributes (created in create_date_stamp_tab)
+        self.physical_height_spinbox: QDoubleSpinBox
+        self.dpi_spinbox: QSpinBox
+        self.format_input: QLineEdit
+        self.position_combo: QComboBox
+        self.gradient_preview: TemperatureGradientPreview
+        self.outer_temp_slider: QSlider
+        self.core_temp_slider: QSlider
+        self.glow_spinbox: QSpinBox
+        self.margin_spinbox: QSpinBox
+        self.opacity_spinbox: QSpinBox
+
         self.init_ui()
 
     def init_ui(self):
@@ -353,12 +366,77 @@ class ConfigDialog(QDialog):
         """Handle spinbox value change."""
         self.calibration_line.set_length(value)
 
+    def _create_spinbox_row(self, widget_attr, min_val, max_val, default, suffix="", step=None, decimals=None, hint=None):
+        """Helper to create a spinbox row with consistent formatting.
+
+        Args:
+            widget_attr: Attribute name to store the spinbox (e.g., "physical_height_spinbox")
+            min_val: Minimum value
+            max_val: Maximum value
+            default: Default value from settings
+            suffix: Unit suffix (e.g., " units", "%")
+            step: Step increment (optional)
+            decimals: Number of decimal places (creates QDoubleSpinBox if set)
+            hint: Help text to display next to spinbox (optional)
+        """
+        layout = QHBoxLayout()
+
+        # Create appropriate spinbox type
+        if decimals is not None:
+            spinbox = QDoubleSpinBox()
+            spinbox.setDecimals(decimals)
+            if step is not None:
+                spinbox.setSingleStep(step)
+        else:
+            spinbox = QSpinBox()
+            if step is not None:
+                spinbox.setSingleStep(step)
+
+        spinbox.setRange(min_val, max_val)
+        spinbox.setValue(default)
+        if suffix:
+            spinbox.setSuffix(suffix)
+
+        layout.addWidget(spinbox)
+        if hint:
+            layout.addWidget(QLabel(f"({hint})"))
+        layout.addStretch()
+
+        setattr(self, widget_attr, spinbox)
+        return layout
+
+    def _create_temp_slider(self, widget_attr, min_val, max_val, default, tick_interval):
+        """Helper to create a temperature slider with labels.
+
+        Args:
+            widget_attr: Attribute name to store the slider
+            min_val: Minimum temperature (K)
+            max_val: Maximum temperature (K)
+            default: Default value from settings
+            tick_interval: Tick mark spacing
+        """
+        layout = QHBoxLayout()
+
+        slider = QSlider(Qt.Orientation.Horizontal)
+        slider.setRange(min_val, max_val)
+        slider.setValue(default)
+        slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        slider.setTickInterval(tick_interval)
+        slider.valueChanged.connect(self._update_gradient_preview)
+
+        layout.addWidget(QLabel("Warmer"))
+        layout.addWidget(slider)
+        layout.addWidget(QLabel("Cooler"))
+
+        setattr(self, widget_attr, slider)
+        return layout
+
     def create_date_stamp_tab(self):
         """Create date stamp settings tab."""
         tab = QWidget()
         layout = QVBoxLayout()
 
-        # Title
+        # Title and instructions
         title_label = QLabel("Vintage Date Stamp Settings")
         title_label.setStyleSheet("font-weight: bold; font-size: 14px;")
         layout.addWidget(title_label)
@@ -372,44 +450,37 @@ class ConfigDialog(QDialog):
         instruction_label.setWordWrap(True)
         layout.addWidget(instruction_label)
 
-        # Settings grid
-        from PyQt6.QtWidgets import QFormLayout, QComboBox
+        # Settings form
         form_layout = QFormLayout()
 
-        # Physical Height
-        physical_height_layout = QHBoxLayout()
-        self.physical_height_spinbox = QDoubleSpinBox()
-        self.physical_height_spinbox.setRange(0.1, 1.0)
-        self.physical_height_spinbox.setSingleStep(0.05)
-        self.physical_height_spinbox.setDecimals(2)
-        self.physical_height_spinbox.setValue(self.config.get_setting("date_stamp_physical_height", 0.2))
-        self.physical_height_spinbox.setSuffix(" units")
-        physical_height_layout.addWidget(self.physical_height_spinbox)
-        physical_height_layout.addWidget(QLabel("(Recommended: 0.15-0.25 for small prints)"))
-        physical_height_layout.addStretch()
-        form_layout.addRow("Stamp Height:", physical_height_layout)
+        # Physical dimensions
+        form_layout.addRow(
+            "Stamp Height:",
+            self._create_spinbox_row("physical_height_spinbox", 0.1, 1.0,
+                                    self.config.get_setting("date_stamp_physical_height", 0.2),
+                                    suffix=" units", step=0.05, decimals=2,
+                                    hint="Recommended: 0.15-0.25 for small prints")
+        )
 
-        # Pixels per Unit (Resolution)
-        dpi_layout = QHBoxLayout()
-        self.dpi_spinbox = QSpinBox()
-        self.dpi_spinbox.setRange(150, 600)
-        self.dpi_spinbox.setSingleStep(50)
-        self.dpi_spinbox.setValue(self.config.get_setting("date_stamp_target_dpi", 300))
-        self.dpi_spinbox.setSuffix(" px/unit")
-        dpi_layout.addWidget(self.dpi_spinbox)
-        dpi_layout.addWidget(QLabel("(Standard: 300, High-res: 600)"))
-        dpi_layout.addStretch()
-        form_layout.addRow("Resolution:", dpi_layout)
+        form_layout.addRow(
+            "Resolution:",
+            self._create_spinbox_row("dpi_spinbox", 150, 600,
+                                    self.config.get_setting("date_stamp_target_dpi", 300),
+                                    suffix=" px/unit", step=50,
+                                    hint="Standard: 300, High-res: 600")
+        )
 
-        # Date Format
+        # Date format with examples
         format_layout = QVBoxLayout()
         self.format_input = QLineEdit()
         self.format_input.setText(self.config.get_setting("date_stamp_format", "YY.MM.DD"))
         self.format_input.setPlaceholderText("YY.MM.DD")
         format_layout.addWidget(self.format_input)
+
         format_examples = QLabel("Examples: YY.MM.DD → 25.12.23 | MM.DD.YY → 12.25.25 | DD-MM-YY → 25-12-23")
         format_examples.setStyleSheet("color: #888; font-size: 10px;")
         format_layout.addWidget(format_examples)
+
         format_note = QLabel("Note: Use only numbers, dots (.), dashes (-), and spaces. Avoid apostrophes or special characters.")
         format_note.setStyleSheet("color: #FF6600; font-size: 10px; font-style: italic;")
         format_layout.addWidget(format_note)
@@ -419,13 +490,12 @@ class ConfigDialog(QDialog):
         position_layout = QHBoxLayout()
         self.position_combo = QComboBox()
         self.position_combo.addItems(["bottom-right", "bottom-left", "top-right", "top-left"])
-        current_position = self.config.get_setting("date_stamp_position", "bottom-right")
-        self.position_combo.setCurrentText(current_position)
+        self.position_combo.setCurrentText(self.config.get_setting("date_stamp_position", "bottom-right"))
         position_layout.addWidget(self.position_combo)
         position_layout.addStretch()
         form_layout.addRow("Position:", position_layout)
 
-        # Temperature Gradient Preview
+        # Temperature gradient section
         gradient_label = QLabel("Color Temperature Gradient:")
         gradient_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
         form_layout.addRow(gradient_label)
@@ -433,66 +503,42 @@ class ConfigDialog(QDialog):
         self.gradient_preview = TemperatureGradientPreview()
         form_layout.addRow(self.gradient_preview)
 
-        # Outer Temperature (warm edge)
-        outer_temp_layout = QHBoxLayout()
-        self.outer_temp_slider = QSlider(Qt.Orientation.Horizontal)
-        self.outer_temp_slider.setRange(1000, 4000)
-        self.outer_temp_slider.setValue(self.config.get_setting("date_stamp_temp_outer", 1800))
-        self.outer_temp_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.outer_temp_slider.setTickInterval(500)
-        self.outer_temp_label = QLabel("Warmer")
-        self.outer_temp_label.setMinimumWidth(60)
-        outer_temp_layout.addWidget(QLabel("Warmer"))
-        outer_temp_layout.addWidget(self.outer_temp_slider)
-        outer_temp_layout.addWidget(QLabel("Cooler"))
-        self.outer_temp_slider.valueChanged.connect(self._update_gradient_preview)
-        form_layout.addRow("Outer Glow:", outer_temp_layout)
+        form_layout.addRow(
+            "Outer Glow:",
+            self._create_temp_slider("outer_temp_slider", 1000, 4000,
+                                    self.config.get_setting("date_stamp_temp_outer", 1800), 500)
+        )
 
-        # Core Temperature (hot center)
-        core_temp_layout = QHBoxLayout()
-        self.core_temp_slider = QSlider(Qt.Orientation.Horizontal)
-        self.core_temp_slider.setRange(4000, 10000)
-        self.core_temp_slider.setValue(self.config.get_setting("date_stamp_temp_core", 6500))
-        self.core_temp_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.core_temp_slider.setTickInterval(1000)
-        core_temp_layout.addWidget(QLabel("Warmer"))
-        core_temp_layout.addWidget(self.core_temp_slider)
-        core_temp_layout.addWidget(QLabel("Cooler"))
-        self.core_temp_slider.valueChanged.connect(self._update_gradient_preview)
-        form_layout.addRow("Core Text:", core_temp_layout)
+        form_layout.addRow(
+            "Core Text:",
+            self._create_temp_slider("core_temp_slider", 4000, 10000,
+                                    self.config.get_setting("date_stamp_temp_core", 6500), 1000)
+        )
 
-        # Initialize gradient preview with current values
+        # Initialize gradient preview
         self._update_gradient_preview()
 
-        # Glow Intensity
-        glow_layout = QHBoxLayout()
-        self.glow_spinbox = QSpinBox()
-        self.glow_spinbox.setRange(0, 100)
-        self.glow_spinbox.setValue(self.config.get_setting("date_stamp_glow_intensity", 80))
-        self.glow_spinbox.setSuffix("%")
-        glow_layout.addWidget(self.glow_spinbox)
-        glow_layout.addStretch()
-        form_layout.addRow("Glow Intensity:", glow_layout)
+        # Appearance settings
+        form_layout.addRow(
+            "Glow Intensity:",
+            self._create_spinbox_row("glow_spinbox", 0, 100,
+                                    self.config.get_setting("date_stamp_glow_intensity", 80),
+                                    suffix="%")
+        )
 
-        # Margin
-        margin_layout = QHBoxLayout()
-        self.margin_spinbox = QSpinBox()
-        self.margin_spinbox.setRange(10, 100)
-        self.margin_spinbox.setValue(self.config.get_setting("date_stamp_margin", 30))
-        self.margin_spinbox.setSuffix(" px")
-        margin_layout.addWidget(self.margin_spinbox)
-        margin_layout.addStretch()
-        form_layout.addRow("Margin from Edge:", margin_layout)
+        form_layout.addRow(
+            "Margin from Edge:",
+            self._create_spinbox_row("margin_spinbox", 10, 100,
+                                    self.config.get_setting("date_stamp_margin", 30),
+                                    suffix=" px")
+        )
 
-        # Opacity
-        opacity_layout = QHBoxLayout()
-        self.opacity_spinbox = QSpinBox()
-        self.opacity_spinbox.setRange(50, 100)
-        self.opacity_spinbox.setValue(self.config.get_setting("date_stamp_opacity", 90))
-        self.opacity_spinbox.setSuffix("%")
-        opacity_layout.addWidget(self.opacity_spinbox)
-        opacity_layout.addStretch()
-        form_layout.addRow("Opacity:", opacity_layout)
+        form_layout.addRow(
+            "Opacity:",
+            self._create_spinbox_row("opacity_spinbox", 50, 100,
+                                    self.config.get_setting("date_stamp_opacity", 90),
+                                    suffix="%")
+        )
 
         layout.addLayout(form_layout)
 
@@ -509,9 +555,7 @@ class ConfigDialog(QDialog):
         preview_info.setWordWrap(True)
         layout.addWidget(preview_info)
 
-        # Add stretch to push content to top
         layout.addStretch()
-
         tab.setLayout(layout)
         return tab
 
@@ -610,7 +654,7 @@ class ConfigDialog(QDialog):
         if self.size_groups_list.count() > 0:
             self.size_groups_list.setCurrentRow(0)
 
-    def on_size_group_selected(self, current, previous):
+    def on_size_group_selected(self, current, _previous):
         """Handle size group selection - load sizes for this group."""
         if not current:
             self.sizes_list.clear()
