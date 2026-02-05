@@ -265,18 +265,18 @@ class CropOverlay(QWidget):
         # Bottom
         if self.crop_rect.bottom() < full_rect.height():
             painter.fillRect(0, self.crop_rect.bottom(),
-                           full_rect.width(), full_rect.height() - self.crop_rect.bottom(),
-                           dark_color)
+                             full_rect.width(), full_rect.height() - self.crop_rect.bottom(),
+                             dark_color)
 
         # Left
         painter.fillRect(0, self.crop_rect.top(),
-                        self.crop_rect.left(), self.crop_rect.height(),
-                        dark_color)
+                         self.crop_rect.left(), self.crop_rect.height(),
+                         dark_color)
 
         # Right
         painter.fillRect(self.crop_rect.right(), self.crop_rect.top(),
-                        full_rect.width() - self.crop_rect.right(), self.crop_rect.height(),
-                        dark_color)
+                         full_rect.width() - self.crop_rect.right(), self.crop_rect.height(),
+                         dark_color)
 
         # Draw crop rectangle border
         pen = QPen(QColor(255, 255, 255), 2)

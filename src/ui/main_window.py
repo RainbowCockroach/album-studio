@@ -118,7 +118,7 @@ class MainWindow(QMainWindow):
         content_layout = QHBoxLayout()
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-        
+
         content_layout.addWidget(self.detail_panel)
         content_layout.addWidget(self.image_grid, stretch=1)
 
@@ -217,7 +217,7 @@ class MainWindow(QMainWindow):
         """Handle new project creation."""
         if not name:
             QMessageBox.warning(self, "Invalid Input",
-                              "Please enter a project name.")
+                                "Please enter a project name.")
             return
 
         # Get workspace directory from settings
@@ -252,11 +252,11 @@ class MainWindow(QMainWindow):
             self.project_toolbar.set_current_project(name)
 
             QMessageBox.information(self, "Success",
-                                  f"Project '{name}' created successfully!\n"
-                                  f"Location: {project.input_folder}")
+                                    f"Project '{name}' created successfully!\n"
+                                    f"Location: {project.input_folder}")
         else:
             QMessageBox.warning(self, "Error",
-                              "Failed to create project. Project may already exist.")
+                                "Failed to create project. Project may already exist.")
 
     def on_archive_requested(self, project_name: str):
         """Handle archive project request."""
@@ -443,7 +443,7 @@ class MainWindow(QMainWindow):
     def on_delete_confirmed(self):
         """Handle delete confirmation - delete selected images."""
         selected_items = self.image_grid.get_selected_items()
-        
+
         if not selected_items:
             # No items selected, just exit delete mode
             self.project_toolbar.toggle_delete_mode(False)
@@ -463,17 +463,17 @@ class MainWindow(QMainWindow):
 
         import os
         deleted_count = 0
-        
+
         for item in selected_items:
             try:
                 # Remove file
                 if os.path.exists(item.file_path):
                     os.remove(item.file_path)
-                
+
                 # Remove from project
                 if item in self.current_project.images:
                     self.current_project.images.remove(item)
-                    
+
                 deleted_count += 1
             except Exception as e:
                 print(f"Error deleting file {item.file_path}: {e}")
@@ -502,7 +502,7 @@ class MainWindow(QMainWindow):
 
         if not album or not size:
             QMessageBox.warning(self, "No Tags Selected",
-                              "Please select both album and size before tagging images.")
+                                "Please select both album and size before tagging images.")
             return
 
         # Apply tags
@@ -656,7 +656,6 @@ class MainWindow(QMainWindow):
                 "Rename Failed",
                 f"Failed to rename file: {str(e)}"
             )
-
 
     def on_refresh_requested(self):
         """Handle refresh & rename button click."""

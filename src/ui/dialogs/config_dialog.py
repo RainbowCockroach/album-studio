@@ -365,7 +365,16 @@ class ConfigDialog(QDialog):
         """Handle spinbox value change."""
         self.calibration_line.set_length(value)
 
-    def _create_spinbox_row(self, widget_attr, min_val, max_val, default, suffix="", step=None, decimals=None, hint=None):
+    def _create_spinbox_row(
+            self,
+            widget_attr,
+            min_val,
+            max_val,
+            default,
+            suffix="",
+            step=None,
+            decimals=None,
+            hint=None):
         """Helper to create a spinbox row with consistent formatting.
 
         Args:
@@ -456,9 +465,9 @@ class ConfigDialog(QDialog):
         form_layout.addRow(
             "Stamp Height:",
             self._create_spinbox_row("physical_height_spinbox", 0.1, 2.0,
-                                    self.config.get_setting("date_stamp_physical_height", 0.5),
-                                    suffix=" units", step=0.1, decimals=2,
-                                    hint="Physical height in same units as print size (cm/inches)")
+                                     self.config.get_setting("date_stamp_physical_height", 0.5),
+                                     suffix=" units", step=0.1, decimals=2,
+                                     hint="Physical height in same units as print size (cm/inches)")
         )
 
         # Date format with examples
@@ -472,7 +481,8 @@ class ConfigDialog(QDialog):
         format_examples.setStyleSheet("color: #888; font-size: 10px;")
         format_layout.addWidget(format_examples)
 
-        format_note = QLabel("Note: Use only numbers, dots (.), dashes (-), and spaces. Avoid apostrophes or special characters.")
+        format_note = QLabel(
+            "Note: Use only numbers, dots (.), dashes (-), and spaces. Avoid apostrophes or special characters.")
         format_note.setStyleSheet("color: #FF6600; font-size: 10px; font-style: italic;")
         format_layout.addWidget(format_note)
         form_layout.addRow("Date Format:", format_layout)
@@ -497,13 +507,13 @@ class ConfigDialog(QDialog):
         form_layout.addRow(
             "Outer Glow:",
             self._create_temp_slider("outer_temp_slider", 1000, 4000,
-                                    self.config.get_setting("date_stamp_temp_outer", 1800), 500)
+                                     self.config.get_setting("date_stamp_temp_outer", 1800), 500)
         )
 
         form_layout.addRow(
             "Core Text:",
             self._create_temp_slider("core_temp_slider", 4000, 10000,
-                                    self.config.get_setting("date_stamp_temp_core", 6500), 1000)
+                                     self.config.get_setting("date_stamp_temp_core", 6500), 1000)
         )
 
         # Initialize gradient preview
@@ -513,22 +523,22 @@ class ConfigDialog(QDialog):
         form_layout.addRow(
             "Glow Intensity:",
             self._create_spinbox_row("glow_spinbox", 0, 100,
-                                    self.config.get_setting("date_stamp_glow_intensity", 80),
-                                    suffix="%")
+                                     self.config.get_setting("date_stamp_glow_intensity", 80),
+                                     suffix="%")
         )
 
         form_layout.addRow(
             "Margin from Edge:",
             self._create_spinbox_row("margin_spinbox", 10, 100,
-                                    self.config.get_setting("date_stamp_margin", 30),
-                                    suffix=" px")
+                                     self.config.get_setting("date_stamp_margin", 30),
+                                     suffix=" px")
         )
 
         form_layout.addRow(
             "Opacity:",
             self._create_spinbox_row("opacity_spinbox", 50, 100,
-                                    self.config.get_setting("date_stamp_opacity", 90),
-                                    suffix="%")
+                                     self.config.get_setting("date_stamp_opacity", 90),
+                                     suffix="%")
         )
 
         layout.addLayout(form_layout)
@@ -1013,7 +1023,8 @@ class AddSizeDialog(QDialog):
         layout.addWidget(self.alias_input)
 
         # Info label
-        info_label = QLabel("Note: Size ratio must follow NxM pattern (e.g., 9x6)\nColor is auto-assigned and can be changed later.")
+        info_label = QLabel(
+            "Note: Size ratio must follow NxM pattern (e.g., 9x6)\nColor is auto-assigned and can be changed later.")
         info_label.setStyleSheet("color: #666; font-size: 10px;")
         layout.addWidget(info_label)
 

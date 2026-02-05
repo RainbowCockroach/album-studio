@@ -1,6 +1,7 @@
-from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem, 
+from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
                              QLabel, QHeaderView, QPushButton)
 from PyQt6.QtCore import Qt, pyqtSignal
+
 
 class DetailPanel(QWidget):
     """Sidebar widget to display detailed information about the selected image."""
@@ -15,7 +16,7 @@ class DetailPanel(QWidget):
     def init_ui(self):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
-        
+
         # Header
         header = QLabel("Image Details")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -41,7 +42,7 @@ class DetailPanel(QWidget):
         self.setLayout(layout)
         self.setMinimumWidth(250)
         self.setMaximumWidth(350)
-        
+
         # Initially hidden
         self.hide()
 
@@ -49,7 +50,7 @@ class DetailPanel(QWidget):
         """Update the panel with new data."""
         self.tree.clear()
         self.current_image_item = image_item
-        
+
         if not data:
             self.rename_btn.setEnabled(False)
             return
@@ -58,16 +59,16 @@ class DetailPanel(QWidget):
             item = QTreeWidgetItem(self.tree)
             item.setText(0, str(key))
             item.setText(1, str(value))
-        
+
         # Enable rename button if we have an image item
         self.rename_btn.setEnabled(image_item is not None)
-    
+
     def clear(self):
         """Clear the panel."""
         self.tree.clear()
         self.current_image_item = None
         self.rename_btn.setEnabled(False)
-    
+
     def on_rename_clicked(self):
         """Handle rename button click."""
         if self.current_image_item:

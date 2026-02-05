@@ -19,7 +19,7 @@ class ImageProcessor:
 
             # For HEIC and potentially others, standard piexif.load(path) might fail
             # or simply not work. We'll try a robust approach using Pillow for metadata.
-            
+
             # First try Pillow directly as it's cleaner for HEIC
             try:
                 with Image.open(file_path) as img:
@@ -30,7 +30,7 @@ class ImageProcessor:
                         if date_str:
                             return datetime.strptime(date_str, "%Y:%m:%d %H:%M:%S")
             except Exception:
-                pass # Fallback to strict piexif if Pillow fails or returns nothing
+                pass  # Fallback to strict piexif if Pillow fails or returns nothing
 
             # Legacy/Fallback method (Piexif)
             exif_dict = piexif.load(file_path)
@@ -71,7 +71,7 @@ class ImageProcessor:
             with Image.open(file_path) as img:
                 info["Dimensions"] = f"{img.width} x {img.height}"
                 info["Format"] = img.format or "Unknown"
-                
+
                 exif = img.getexif()
                 if exif:
                     # Common EXIF tags
@@ -79,20 +79,20 @@ class ImageProcessor:
                     # 33434: ExposureTime, 33437: FNumber
                     # 34855: ISOSpeedRatings
                     # 36867: DateTimeOriginal
-                    
+
                     if 271 in exif:
                         info["Camera Make"] = str(exif[271])
                     if 272 in exif:
                         info["Camera Model"] = str(exif[272])
-                    
+
                     # Exposure details often in ExifOffset (34665)
                     # Pillow doesn't always automatically parse sub-IFDs with getexif()
                     # So we might need to rely on piexif for deep dive or use get_ifd if available in newer Pillow
-                    
+
             # Use piexif for more detailed EXIF data if available
             try:
                 exif_dict = piexif.load(file_path)
-                
+
                 if "0th" in exif_dict:
                     if piexif.ImageIFD.Make in exif_dict["0th"]:
                         info["Camera Make"] = exif_dict["0th"][piexif.ImageIFD.Make].decode('utf-8', errors='ignore')
@@ -101,29 +101,29 @@ class ImageProcessor:
 
                 if "Exif" in exif_dict:
                     exif_ifd = exif_dict["Exif"]
-                    
+
                     if piexif.ExifIFD.DateTimeOriginal in exif_ifd:
                         info["Date Taken"] = exif_ifd[piexif.ExifIFD.DateTimeOriginal].decode('utf-8', errors='ignore')
-                    
+
                     if piexif.ExifIFD.ISOSpeedRatings in exif_ifd:
                         info["ISO"] = str(exif_ifd[piexif.ExifIFD.ISOSpeedRatings])
-                        
+
                     if piexif.ExifIFD.ExposureTime in exif_ifd:
                         num, den = exif_ifd[piexif.ExifIFD.ExposureTime]
                         if den != 0:
                             info["Exposure"] = f"{num}/{den} s"
                         else:
                             info["Exposure"] = f"{num} s"
-                            
+
                     if piexif.ExifIFD.FNumber in exif_ifd:
                         num, den = exif_ifd[piexif.ExifIFD.FNumber]
                         if den != 0:
-                            info["Aperture"] = f"f/{num/den:.1f}"
-                            
+                            info["Aperture"] = f"f/{num / den:.1f}"
+
                     if piexif.ExifIFD.FocalLength in exif_ifd:
                         num, den = exif_ifd[piexif.ExifIFD.FocalLength]
                         if den != 0:
-                            info["Focal Length"] = f"{num/den:.1f} mm"
+                            info["Focal Length"] = f"{num / den:.1f} mm"
 
             except Exception:
                 # If piexif fails (e.g. HEIC sometimes), stick to what we got from Pillow or basic file stats
@@ -131,7 +131,7 @@ class ImageProcessor:
 
         except Exception as e:
             print(f"Error reading EXIF for {file_path}: {e}")
-            
+
         return info
 
     @staticmethod

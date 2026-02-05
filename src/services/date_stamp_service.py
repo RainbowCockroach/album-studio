@@ -349,17 +349,17 @@ class DateStampService:
             # TRANSITION ZONE - Switch to Screen, colors getting hotter
             (3.0, 0.4, 0.40, False),  # Medium
             (2.5, 0.5, 0.50, False),  # Medium-inner
-            (2.0, 0.55, 0.55, False), # Inner-wide
+            (2.0, 0.55, 0.55, False),  # Inner-wide
 
             # INNER GLOW - Screen mode, building brightness
-            (1.5, 0.65, 0.60, False), # Inner
-            (1.0, 0.75, 0.70, False), # Close
-            (0.5, 0.85, 0.80, False), # Near
-            (0.25, 0.92, 0.85, False),# Very near
+            (1.5, 0.65, 0.60, False),  # Inner
+            (1.0, 0.75, 0.70, False),  # Close
+            (0.5, 0.85, 0.80, False),  # Near
+            (0.25, 0.92, 0.85, False),  # Very near
 
             # CORE - Sharp text with hottest color
-            (0.0, 0.95, 0.90, False), # Core text - bright
-            (0.05, 1.0, 0.50, False), # Highlight - hottest center
+            (0.0, 0.95, 0.90, False),  # Core text - bright
+            (0.05, 1.0, 0.50, False),  # Highlight - hottest center
         ]
 
         def create_glow_layer(

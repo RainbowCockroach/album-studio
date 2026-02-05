@@ -13,7 +13,7 @@ def generate_random_color() -> str:
     s = 0.6 + random.random() * 0.4  # 60-100% saturation
     v = 0.7 + random.random() * 0.2  # 70-90% brightness
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
-    return f"#{int(r*255):02x}{int(g*255):02x}{int(b*255):02x}"
+    return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
 
 
 class Config:
