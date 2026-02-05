@@ -469,6 +469,50 @@ No automated test suite currently exists. Manual testing workflow:
 
 Debug logs are extensive throughout similarity search and archival processes.
 
+## Code Quality and Linting
+
+**CRITICAL:** Always lint modified files when a task is finished (when the user confirms the task is complete). This ensures code quality and catches potential issues before committing.
+
+### Type Checking
+
+The project uses Pyright and mypy for type checking with relaxed settings suitable for PyQt6:
+
+```bash
+# Type check with Pyright (configured in pyrightconfig.json)
+pyright src/
+
+# Type check specific files
+pyright src/services/crop_service.py
+
+# Type check with mypy (configured in mypy.ini)
+mypy src/
+```
+
+Type checking configuration:
+- Missing imports flagged as errors
+- Unused imports and variables flagged
+- Optional access patterns flagged as warnings
+- Third-party libraries without stubs (pillow-heif, piexif, smartcrop, torch) have ignore rules in mypy.ini
+
+### Linting Workflow
+
+When you finish implementing a task (user confirms completion):
+
+1. **Type check the modified files:**
+   ```bash
+   pyright src/path/to/modified_file.py
+   ```
+
+2. **Check for common issues:**
+   - Unused imports
+   - Undefined variables
+   - Type mismatches
+   - Missing imports
+
+3. **Fix any issues found** before considering the task complete
+
+This step is mandatory for all code changes to maintain code quality and prevent runtime errors.
+
 ## File Structure
 
 ```

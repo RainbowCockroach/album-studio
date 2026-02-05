@@ -997,7 +997,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Date Stamp Not Enabled",
-                f"The selected image is not marked for date stamping.\n\n"
+                "The selected image is not marked for date stamping.\n\n"
                 "Please select the image and click 'Add Date Stamp' first, then preview."
             )
             return
