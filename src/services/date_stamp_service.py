@@ -1,12 +1,84 @@
 """Service for applying vintage-style date stamps to images."""
 
 import os
+import math
 from datetime import datetime
-from typing import Optional, Tuple, Union, cast
+from typing import List, Optional, Tuple, Union, cast
 from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
 from ..models.config import Config
 from ..utils.paths import get_assets_dir
+
+
+def kelvin_to_rgb(temperature: int) -> Tuple[int, int, int]:
+    """
+    Convert color temperature in Kelvin to RGB values.
+
+    Uses the algorithm by Tanner Helland, which provides accurate
+    approximations for temperatures in the 1000K-40000K range.
+
+    Args:
+        temperature: Color temperature in Kelvin (1000-40000)
+
+    Returns:
+        RGB tuple (0-255 for each channel)
+    """
+    # Clamp temperature to valid range
+    temp = max(1000, min(40000, temperature)) / 100.0
+
+    # Calculate red
+    if temp <= 66:
+        red = 255
+    else:
+        red = temp - 60
+        red = 329.698727446 * (red ** -0.1332047592)
+        red = max(0, min(255, red))
+
+    # Calculate green
+    if temp <= 66:
+        green = temp
+        green = 99.4708025861 * math.log(green) - 161.1195681661
+    else:
+        green = temp - 60
+        green = 288.1221695283 * (green ** -0.0755148492)
+    green = max(0, min(255, green))
+
+    # Calculate blue
+    if temp >= 66:
+        blue = 255
+    elif temp <= 19:
+        blue = 0
+    else:
+        blue = temp - 10
+        blue = 138.5177312231 * math.log(blue) - 305.0447927307
+        blue = max(0, min(255, blue))
+
+    return (int(red), int(green), int(blue))
+
+
+def generate_temperature_gradient(
+    temp_outer: int,
+    temp_core: int,
+    num_steps: int = 9
+) -> List[Tuple[int, int, int]]:
+    """
+    Generate a color gradient based on color temperature range.
+
+    Args:
+        temp_outer: Temperature for outer glow (warmest, e.g., 1800K)
+        temp_core: Temperature for core text (hottest, e.g., 6500K)
+        num_steps: Number of colors in the gradient
+
+    Returns:
+        List of RGB tuples from outer (warm) to core (hot)
+    """
+    gradient = []
+    for i in range(num_steps):
+        # Interpolate temperature from outer to core
+        t = i / (num_steps - 1) if num_steps > 1 else 1.0
+        temp = temp_outer + (temp_core - temp_outer) * t
+        gradient.append(kelvin_to_rgb(int(temp)))
+    return gradient
 
 
 class DateStampService:
@@ -162,15 +234,17 @@ class DateStampService:
         margin: int
     ) -> Image.Image:
         """
-        Create multi-layer date stamp with vintage glow effect.
+        Create multi-layer date stamp with physics-based warm-edge glow effect.
 
-        Uses proper alpha channel handling to avoid dark edges:
-        1. Create grayscale masks for text shapes
-        2. Blur the masks
-        3. Apply colors using the masks as alpha channels
+        Uses a blackbody-inspired color temperature gradient:
+        - Outer edges: Cooler temperature = warmer/redder colors (subsurface scattering)
+        - Inner core: Hotter temperature = brighter/yellower colors (light emission)
 
-        This prevents PIL's antialiasing from creating grey edges by separating
-        the shape/alpha from the color information.
+        The outer layers use Linear Dodge (Add) blend mode for saturated edges,
+        while inner layers use Screen blend for light projection effect.
+
+        This accurately simulates how light passing through film substrate
+        creates warm-shifted edges due to scattering and absorption.
 
         Args:
             image_size: Size of the target image (width, height)
@@ -184,11 +258,14 @@ class DateStampService:
         """
         width, height = image_size
 
-        # Get color settings with proper defaults (vintage orange tones)
-        main_color = cast(str, self.config.get_setting("date_stamp_color", "#FFAA44") or "#FFAA44")  # Bright orange-yellow core (LED look)
-        glow_color = cast(str, self.config.get_setting("date_stamp_glow_color", "#FF7700") or "#FF7700")  # Warm orange glow
+        # Get settings
         glow_intensity = cast(int, self.config.get_setting("date_stamp_glow_intensity", 80) or 80)
         opacity = cast(int, self.config.get_setting("date_stamp_opacity", 90) or 90)
+        temp_outer = cast(int, self.config.get_setting("date_stamp_temp_outer", 1800) or 1800)
+        temp_core = cast(int, self.config.get_setting("date_stamp_temp_core", 6500) or 6500)
+
+        # Generate color gradient from temperature range
+        gradient = generate_temperature_gradient(temp_outer, temp_core, num_steps=9)
 
         # Create transparent canvas
         canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
@@ -212,37 +289,46 @@ class DateStampService:
         # Get font size for proportional scaling
         font_size = getattr(font, 'size', text_height)
 
-        # Parse colors from config
-        main_rgb = self._hex_to_rgb(main_color)
-        glow_rgb = self._hex_to_rgb(glow_color)
-
-        # Create color gradient from outer glow to core text
-        # Outer glow: Use configured glow color
-        outer_glow_color = glow_rgb
-
-        # Mid glow: Blend 50% between glow and main color
-        mid_color = (
-            (glow_rgb[0] + main_rgb[0]) // 2,
-            (glow_rgb[1] + main_rgb[1]) // 2,
-            (glow_rgb[2] + main_rgb[2]) // 2
-        )
-
-        # Core color: Use configured main color
-        core_color = main_rgb
-
-        # Bright highlight: Lighten main color by 20% for center brightness
-        bright_color = (
-            min(255, int(main_rgb[0] * 1.0 + (255 - main_rgb[0]) * 0.2)),
-            min(255, int(main_rgb[1] * 1.0 + (255 - main_rgb[1]) * 0.2)),
-            min(255, int(main_rgb[2] * 1.0 + (255 - main_rgb[2]) * 0.2))
-        )
-
         # =================================================================
-        # PROPER TECHNIQUE: Create grayscale masks, then apply colors
-        # This prevents dark edges from antialiasing
+        # LAYER DEFINITION: Physics-based color temperature gradient
+        # Each layer has: (blur_multiplier, gradient_position, alpha, use_linear_dodge)
+        #
+        # gradient_position: 0.0 = outermost (warmest, temp_outer)
+        #                    1.0 = core (hottest, temp_core)
+        #
+        # Outer layers use Linear Dodge for saturated warm edges
+        # Inner layers use Screen for light projection
         # =================================================================
 
-        def create_glow_layer(blur_radius: int, color_rgb: Tuple[int, int, int], alpha_multiplier: float):
+        layers = [
+            # OUTER GLOW - Linear Dodge for saturated warm edges
+            # These create the characteristic warm bleed at the transition zone
+            (6.0, 0.0, 0.20, True),   # Extreme outer - warmest
+            (5.0, 0.1, 0.25, True),   # Very wide
+            (4.0, 0.2, 0.30, True),   # Wide
+            (3.5, 0.3, 0.35, True),   # Medium-wide - transitioning
+
+            # TRANSITION ZONE - Switch to Screen, colors getting hotter
+            (3.0, 0.4, 0.40, False),  # Medium
+            (2.5, 0.5, 0.50, False),  # Medium-inner
+            (2.0, 0.55, 0.55, False), # Inner-wide
+
+            # INNER GLOW - Screen mode, building brightness
+            (1.5, 0.65, 0.60, False), # Inner
+            (1.0, 0.75, 0.70, False), # Close
+            (0.5, 0.85, 0.80, False), # Near
+            (0.25, 0.92, 0.85, False),# Very near
+
+            # CORE - Sharp text with hottest color
+            (0.0, 0.95, 0.90, False), # Core text - bright
+            (0.05, 1.0, 0.50, False), # Highlight - hottest center
+        ]
+
+        def create_glow_layer(
+            blur_radius: int,
+            color_rgb: Tuple[int, int, int],
+            alpha_multiplier: float
+        ) -> Image.Image:
             """Create a single glow layer with proper alpha handling."""
             # Step 1: Create grayscale mask (white text on black background)
             mask = Image.new('L', (width, height), 0)
@@ -263,78 +349,32 @@ class DateStampService:
 
             return colored_layer
 
-        # =================================================================
-        # OUTER GLOW LAYERS - Configurable glow color, wide diffusion
-        # Enhanced bleeding effect for vintage film camera aesthetic
-        # =================================================================
+        # Build each layer with temperature-based color and appropriate blend mode
+        for blur_mult, grad_pos, alpha, use_linear_dodge in layers:
+            # Calculate blur radius from multiplier
+            blur_radius = int(font_size * blur_mult) if blur_mult > 0 else 0
+            blur_radius = max(blur_radius, 1) if blur_mult > 0 else 0
 
-        # Layer 1: Extreme outer bleed (6x font size) - maximum diffusion
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 6.0), outer_glow_color, 0.25 * glow_factor
-        ))
+            # Get color from temperature gradient
+            color = self._get_gradient_color(gradient, grad_pos)
 
-        # Layer 2: Very wide bleed (5x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 5.0), outer_glow_color, 0.35 * glow_factor
-        ))
+            # Calculate final alpha with glow intensity
+            final_alpha = alpha * glow_factor
 
-        # Layer 3: Wide bleed (4x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 4.0), outer_glow_color, 0.45 * glow_factor
-        ))
+            # Apply opacity setting to core layers (last two)
+            if blur_mult <= 0.05:
+                final_alpha *= (opacity / 100.0)
 
-        # Layer 4: Medium-wide glow (3x font size) - transition color
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 3.0), mid_color, 0.55 * glow_factor
-        ))
+            # Create the layer
+            layer = create_glow_layer(blur_radius, color, final_alpha)
 
-        # Layer 5: Medium glow (2x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 2.0), mid_color, 0.65 * glow_factor
-        ))
-
-        # =================================================================
-        # INNER GLOW LAYERS - Orange core, build up brightness
-        # =================================================================
-
-        # Layer 6: Inner-wide glow (1.5x font size) - transition to core
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 1.5), mid_color, 0.70 * glow_factor
-        ))
-
-        # Layer 7: Inner-medium glow (1x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 1.0), core_color, 0.80 * glow_factor
-        ))
-
-        # Layer 8: Close glow (0.5x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            int(font_size * 0.5), core_color, 0.90 * glow_factor
-        ))
-
-        # Layer 9: Near glow (0.25x font size)
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            max(1, int(font_size * 0.25)), core_color, 0.95 * glow_factor
-        ))
-
-        # =================================================================
-        # CORE TEXT - Sharp edges for crisp appearance
-        # =================================================================
-
-        # Layer 10: Sharp core text (no blur for crisp edges)
-        core_opacity = (opacity / 100) * 0.9
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            0, core_color, core_opacity
-        ))
-
-        # =================================================================
-        # BRIGHT CENTER HIGHLIGHT - Minimal blur for sharpness
-        # =================================================================
-
-        # Layer 11: Bright center highlight
-        canvas = self._screen_blend(canvas, create_glow_layer(
-            max(1, int(font_size * 0.05)), bright_color, 0.6
-        ))
+            # Blend using appropriate mode
+            if use_linear_dodge:
+                # Linear Dodge for outer layers - creates saturated warm edges
+                canvas = self._linear_dodge_blend(canvas, layer)
+            else:
+                # Screen for inner layers - light projection effect
+                canvas = self._screen_blend(canvas, layer)
 
         return canvas
 
@@ -442,3 +482,91 @@ class DateStampService:
         # Convert back to 8-bit and create PIL image
         result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
         return Image.fromarray(result, mode='RGBA')
+
+    @staticmethod
+    def _linear_dodge_blend(base: Image.Image, overlay: Image.Image) -> Image.Image:
+        """
+        Blend overlay onto base using Linear Dodge (Add) blend mode.
+
+        Linear Dodge simply adds the pixel values, creating intense, saturated
+        glow effects at edges. This produces more saturated colors than Screen
+        mode, making glows appear "hotter" and more luminous.
+
+        Formula: Result = A + B (clamped to 1.0)
+
+        This is ideal for outer glow layers where we want that characteristic
+        saturated warm edge that real light emissions have.
+
+        Args:
+            base: Base RGBA image
+            overlay: Overlay RGBA image with alpha channel controlling intensity
+
+        Returns:
+            Blended RGBA image
+        """
+        # Convert to numpy arrays for faster computation
+        base_array = np.array(base, dtype=np.float32) / 255.0
+        overlay_array = np.array(overlay, dtype=np.float32) / 255.0
+
+        # Extract RGB and alpha channels
+        base_rgb = base_array[:, :, :3]
+        base_alpha = base_array[:, :, 3:4]
+        overlay_rgb = overlay_array[:, :, :3]
+        overlay_alpha = overlay_array[:, :, 3:4]
+
+        # Linear Dodge (Add) formula: A + B
+        # This creates intense, saturated edges - key for "hot" glow look
+        added_rgb = base_rgb + overlay_rgb
+
+        # Blend added result with base using overlay's alpha
+        result_rgb = base_rgb * (1.0 - overlay_alpha) + added_rgb * overlay_alpha
+
+        # Clamp to valid range (addition can exceed 1.0)
+        result_rgb = np.clip(result_rgb, 0.0, 1.0)
+
+        # Combine alpha channels (standard alpha compositing)
+        result_alpha = base_alpha + overlay_alpha * (1.0 - base_alpha)
+
+        # Combine RGB and alpha
+        result = np.concatenate([result_rgb, result_alpha], axis=2)
+
+        # Convert back to 8-bit and create PIL image
+        result = np.clip(result * 255.0, 0, 255).astype(np.uint8)
+        return Image.fromarray(result, mode='RGBA')
+
+    @staticmethod
+    def _get_gradient_color(
+        gradient: List[Tuple[int, int, int]],
+        position: float
+    ) -> Tuple[int, int, int]:
+        """
+        Interpolate a color from a gradient based on position.
+
+        Args:
+            gradient: List of RGB tuples representing the gradient
+            position: Position in gradient, 0.0 = first color, 1.0 = last color
+
+        Returns:
+            Interpolated RGB tuple
+        """
+        if position <= 0.0:
+            return gradient[0]
+        if position >= 1.0:
+            return gradient[-1]
+
+        # Find the two colors to interpolate between
+        num_colors = len(gradient)
+        scaled_pos = position * (num_colors - 1)
+        lower_idx = int(scaled_pos)
+        upper_idx = min(lower_idx + 1, num_colors - 1)
+        t = scaled_pos - lower_idx  # Interpolation factor
+
+        # Linear interpolation between the two colors
+        c1 = gradient[lower_idx]
+        c2 = gradient[upper_idx]
+
+        return (
+            int(c1[0] + (c2[0] - c1[0]) * t),
+            int(c1[1] + (c2[1] - c1[1]) * t),
+            int(c1[2] + (c2[2] - c1[2]) * t),
+        )

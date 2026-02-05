@@ -2,18 +2,26 @@
 
 from PyQt6.QtWidgets import QLabel
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPainter, QColor, QFont, QPen
+from PyQt6.QtGui import QPainter, QColor, QFont
 from datetime import datetime
 
 
+# Simple preview color - just for showing stamp position and size
+PREVIEW_COLOR = "#FF9933"
+
+
 class DateStampPreviewOverlay(QLabel):
-    """Overlay widget that shows a preview of the date stamp on thumbnail."""
+    """
+    Overlay widget that shows a preview of the date stamp on thumbnail.
+
+    This is a simplified preview showing only the text position and size.
+    The actual rendering with full glow effects happens during export.
+    """
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.date_text = ""
         self.position = "bottom-right"
-        self.color = "#FF7700"
         self.stamp_margin = 5  # Scaled down margin for thumbnail
         self.font_size = 10  # Scaled down font size for thumbnail
 
@@ -37,16 +45,14 @@ class DateStampPreviewOverlay(QLabel):
         date_format = config.get_setting("date_stamp_format", "YY.MM.DD")
         self.date_text = self._format_date(date, date_format)
 
-        # Get settings
+        # Get position setting
         self.position = config.get_setting("date_stamp_position", "bottom-right")
-        self.color = config.get_setting("date_stamp_color", "#FF7700")
 
         # Scale margin for thumbnail (original margin / typical image size * thumbnail size)
         original_margin = config.get_setting("date_stamp_margin", 30)
         self.stamp_margin = int(original_margin * thumbnail_size / 2000)  # Assume ~2000px typical image
 
         # Calculate font size for thumbnail
-        # This is a simplified calculation - just scale based on thumbnail size
         physical_height = config.get_setting("date_stamp_physical_height", 0.2)
 
         # Parse size tag to get dimensions
@@ -59,12 +65,11 @@ class DateStampPreviewOverlay(QLabel):
                 larger_dim = max(width_units, height_units)
 
                 # Scale font size based on thumbnail vs actual print size
-                # Font size = physical_height * pixels_per_unit * (thumbnail_size / (larger_dim * pixels_per_unit))
                 self.font_size = int(physical_height * thumbnail_size / larger_dim)
                 self.font_size = max(8, min(16, self.font_size))  # Clamp to readable range
             else:
                 self.font_size = 10  # Default
-        except:
+        except Exception:
             self.font_size = 10  # Default fallback
 
         self.update()
@@ -78,7 +83,7 @@ class DateStampPreviewOverlay(QLabel):
         return result
 
     def paintEvent(self, event):
-        """Paint the date stamp preview."""
+        """Paint the date stamp preview with simple solid color."""
         if not self.date_text:
             return
 
@@ -116,20 +121,6 @@ class DateStampPreviewOverlay(QLabel):
             x = widget_width - text_width - self.stamp_margin
             y = widget_height - self.stamp_margin
 
-        # Draw glow effect (simplified - just one layer)
-        glow_color = QColor(self.color)
-        glow_color.setAlpha(100)
-        painter.setPen(QPen(glow_color, 3))
-        painter.drawText(x, y, self.date_text)
-
-        # Draw dark outline for visibility on light backgrounds
-        painter.setPen(QPen(QColor(34, 17, 0, 100), 1))
-        painter.drawText(x-1, y-1, self.date_text)
-        painter.drawText(x+1, y-1, self.date_text)
-        painter.drawText(x-1, y+1, self.date_text)
-        painter.drawText(x+1, y+1, self.date_text)
-
-        # Draw main text
-        main_color = QColor(self.color)
-        painter.setPen(main_color)
-        painter.drawText(x, y, self.date_text)
+        # Draw simple solid color text (no glow/outline - just for size preview)
+        painter.setPen(QColor(PREVIEW_COLOR))
+        painter.drawText(int(x), int(y), self.date_text)

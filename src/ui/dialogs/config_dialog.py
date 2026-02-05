@@ -3,12 +3,61 @@ from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
-    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox, QColorDialog,
-    QListWidgetItem
+    QDoubleSpinBox, QTabWidget, QFrame, QSpinBox, QSlider,
+    QListWidgetItem, QColorDialog
 )
 from PyQt6.QtCore import Qt, QLocale
-from PyQt6.QtGui import QPainter, QColor, QPen
+from PyQt6.QtGui import QPainter, QColor, QPen, QLinearGradient, QBrush
 from src.models.config import generate_random_color
+from src.services.date_stamp_service import kelvin_to_rgb
+
+
+class TemperatureGradientPreview(QWidget):
+    """Widget that displays a color temperature gradient preview."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.temp_outer = 1800
+        self.temp_core = 6500
+        self.setMinimumHeight(40)
+        self.setMaximumHeight(40)
+
+    def set_temperatures(self, temp_outer: int, temp_core: int):
+        """Update the temperature range and repaint."""
+        self.temp_outer = temp_outer
+        self.temp_core = temp_core
+        self.update()
+
+    def paintEvent(self, event):
+        """Draw the gradient preview."""
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        # Create gradient from outer (warm) to core (hot)
+        gradient = QLinearGradient(0, 0, self.width(), 0)
+
+        # Generate colors at various positions
+        num_stops = 9
+        for i in range(num_stops):
+            pos = i / (num_stops - 1)
+            temp = self.temp_outer + (self.temp_core - self.temp_outer) * pos
+            r, g, b = kelvin_to_rgb(int(temp))
+            gradient.setColorAt(pos, QColor(r, g, b))
+
+        # Draw rounded rectangle with gradient
+        painter.setBrush(QBrush(gradient))
+        painter.setPen(QPen(QColor("#555"), 1))
+        painter.drawRoundedRect(0, 0, self.width(), self.height(), 5, 5)
+
+        # Draw temperature labels
+        painter.setPen(QColor("#333"))
+        font = painter.font()
+        font.setPointSize(9)
+        painter.setFont(font)
+        painter.drawText(5, self.height() - 8, f"{self.temp_outer}K")
+        painter.drawText(self.width() - 45, self.height() - 8, f"{self.temp_core}K")
+
+        painter.end()
 
 
 class ConfigDialog(QDialog):
@@ -376,31 +425,44 @@ class ConfigDialog(QDialog):
         position_layout.addStretch()
         form_layout.addRow("Position:", position_layout)
 
-        # Core Text Color
-        color_layout = QHBoxLayout()
-        self.color_button = QPushButton()
-        current_color = self.config.get_setting("date_stamp_color", "#FFAA44")
-        self.current_color = current_color
-        self.color_button.setStyleSheet(f"background-color: {current_color}; min-width: 100px; min-height: 30px;")
-        self.color_button.setText(current_color)
-        self.color_button.clicked.connect(self.pick_date_stamp_color)
-        color_layout.addWidget(self.color_button)
-        color_layout.addWidget(QLabel("(Core/text color - bright orange-yellow)"))
-        color_layout.addStretch()
-        form_layout.addRow("Core Text Color:", color_layout)
+        # Temperature Gradient Preview
+        gradient_label = QLabel("Color Temperature Gradient:")
+        gradient_label.setStyleSheet("font-weight: bold; margin-top: 10px;")
+        form_layout.addRow(gradient_label)
 
-        # Glow Color
-        glow_color_layout = QHBoxLayout()
-        self.glow_color_button = QPushButton()
-        current_glow_color = self.config.get_setting("date_stamp_glow_color", "#FF7700")
-        self.current_glow_color = current_glow_color
-        self.glow_color_button.setStyleSheet(f"background-color: {current_glow_color}; min-width: 100px; min-height: 30px;")
-        self.glow_color_button.setText(current_glow_color)
-        self.glow_color_button.clicked.connect(self.pick_glow_color)
-        glow_color_layout.addWidget(self.glow_color_button)
-        glow_color_layout.addWidget(QLabel("(Outer glow color - warm orange)"))
-        glow_color_layout.addStretch()
-        form_layout.addRow("Glow Color:", glow_color_layout)
+        self.gradient_preview = TemperatureGradientPreview()
+        form_layout.addRow(self.gradient_preview)
+
+        # Outer Temperature (warm edge)
+        outer_temp_layout = QHBoxLayout()
+        self.outer_temp_slider = QSlider(Qt.Orientation.Horizontal)
+        self.outer_temp_slider.setRange(1000, 4000)
+        self.outer_temp_slider.setValue(self.config.get_setting("date_stamp_temp_outer", 1800))
+        self.outer_temp_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.outer_temp_slider.setTickInterval(500)
+        self.outer_temp_label = QLabel("Warmer")
+        self.outer_temp_label.setMinimumWidth(60)
+        outer_temp_layout.addWidget(QLabel("Warmer"))
+        outer_temp_layout.addWidget(self.outer_temp_slider)
+        outer_temp_layout.addWidget(QLabel("Cooler"))
+        self.outer_temp_slider.valueChanged.connect(self._update_gradient_preview)
+        form_layout.addRow("Outer Glow:", outer_temp_layout)
+
+        # Core Temperature (hot center)
+        core_temp_layout = QHBoxLayout()
+        self.core_temp_slider = QSlider(Qt.Orientation.Horizontal)
+        self.core_temp_slider.setRange(4000, 10000)
+        self.core_temp_slider.setValue(self.config.get_setting("date_stamp_temp_core", 6500))
+        self.core_temp_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.core_temp_slider.setTickInterval(1000)
+        core_temp_layout.addWidget(QLabel("Warmer"))
+        core_temp_layout.addWidget(self.core_temp_slider)
+        core_temp_layout.addWidget(QLabel("Cooler"))
+        self.core_temp_slider.valueChanged.connect(self._update_gradient_preview)
+        form_layout.addRow("Core Text:", core_temp_layout)
+
+        # Initialize gradient preview with current values
+        self._update_gradient_preview()
 
         # Glow Intensity
         glow_layout = QHBoxLayout()
@@ -453,21 +515,11 @@ class ConfigDialog(QDialog):
         tab.setLayout(layout)
         return tab
 
-    def pick_date_stamp_color(self):
-        """Open color picker for date stamp core text color."""
-        color = QColorDialog.getColor(QColor(self.current_color), self, "Choose Core Text Color")
-        if color.isValid():
-            self.current_color = color.name()
-            self.color_button.setStyleSheet(f"background-color: {self.current_color}; min-width: 100px; min-height: 30px;")
-            self.color_button.setText(self.current_color)
-
-    def pick_glow_color(self):
-        """Open color picker for date stamp glow color."""
-        color = QColorDialog.getColor(QColor(self.current_glow_color), self, "Choose Glow Color")
-        if color.isValid():
-            self.current_glow_color = color.name()
-            self.glow_color_button.setStyleSheet(f"background-color: {self.current_glow_color}; min-width: 100px; min-height: 30px;")
-            self.glow_color_button.setText(self.current_glow_color)
+    def _update_gradient_preview(self):
+        """Update the gradient preview widget with current slider values."""
+        temp_outer = self.outer_temp_slider.value()
+        temp_core = self.core_temp_slider.value()
+        self.gradient_preview.set_temperatures(temp_outer, temp_core)
 
     def create_size_groups_panel(self):
         """Create left panel with size group list."""
@@ -849,8 +901,8 @@ class ConfigDialog(QDialog):
         self.config.set_setting("date_stamp_target_dpi", self.dpi_spinbox.value())
         self.config.set_setting("date_stamp_format", self.format_input.text().strip())
         self.config.set_setting("date_stamp_position", self.position_combo.currentText())
-        self.config.set_setting("date_stamp_color", self.current_color)
-        self.config.set_setting("date_stamp_glow_color", self.current_glow_color)
+        self.config.set_setting("date_stamp_temp_outer", self.outer_temp_slider.value())
+        self.config.set_setting("date_stamp_temp_core", self.core_temp_slider.value())
         self.config.set_setting("date_stamp_glow_intensity", self.glow_spinbox.value())
         self.config.set_setting("date_stamp_margin", self.margin_spinbox.value())
         self.config.set_setting("date_stamp_opacity", self.opacity_spinbox.value())

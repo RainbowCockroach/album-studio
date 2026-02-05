@@ -179,12 +179,15 @@ All widget-to-widget communication goes through MainWindow - widgets never talk 
 5. `MainWindow.on_date_stamp_confirmed()` sets `ImageItem.add_date_stamp = True` for all selected images
 6. `ImageItem.add_date_stamp` flag saved to project_data.json, 📅 indicator appears on thumbnails
 7. User can click "Preview Stamp" to see full-size preview in `ImageViewerDialog`
-8. During crop operation, `DateStampService` applies multi-layer vintage stamp:
+8. During crop operation, `DateStampService` applies physics-based vintage stamp:
    - Reads EXIF date metadata from image
    - Calculates font size based on physical print dimensions (maintains consistent size across print sizes)
-   - Renders 5-layer stamp with glow effects: white halo → dark outline → outer glow → inner glow → main text
+   - Uses blackbody-inspired color temperature gradient for authentic warm-edge glow
+   - Outer layers use Linear Dodge (Add) blend for saturated warm edges (red-orange)
+   - Inner layers use Screen blend for light projection effect (yellow-white core)
+   - 13-layer rendering with colors shifting from deep red-orange (outer) to pale yellow (core)
    - Uses DSEG7 Classic font (bundled in `assets/fonts/`) for authentic digital display aesthetic
-9. Date format, position, color, and opacity configurable in `config/settings.json`
+9. Date format, position, warm shift, and opacity configurable in `config/settings.json`
 
 **Similarity search workflow:**
 
@@ -237,7 +240,8 @@ Three JSON files in `config/`:
 Date stamp settings include:
 - `date_stamp_format`: Date format string (e.g., "'YY.MM.DD", "MM.DD.'YY")
 - `date_stamp_position`: Placement on image (bottom-right, bottom-left, top-right, top-left)
-- `date_stamp_color`: Hex color code (default: "#FF7700" for vintage orange)
+- `date_stamp_temp_outer`: Outer glow color temperature in Kelvin (1000-4000, default: 1800 - warm orange)
+- `date_stamp_temp_core`: Core text color temperature in Kelvin (4000-10000, default: 6500 - bright white)
 - `date_stamp_opacity`: Text opacity 0-100 (default: 90)
 - `date_stamp_glow_intensity`: Glow effect strength 0-100 (default: 80)
 - `date_stamp_margin`: Distance from edges in pixels (default: 30)
@@ -298,12 +302,21 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 ### Date Stamp Rendering
 
-- Uses multi-layer compositing for vintage film camera aesthetic
+- Uses physics-based blackbody color temperature gradient for authentic warm-edge glow
+- Color temperature configurable: outer glow (1000-4000K) and core text (4000-10000K)
+- `kelvin_to_rgb()` function converts temperature to accurate RGB using Planckian locus approximation
 - Font size automatically scales based on physical print dimensions to maintain consistent appearance across different print sizes
-- 5-layer rendering: white halo (dark backgrounds) → dark outline (light backgrounds) → outer glow → inner glow → main text
-- Gaussian blur used for glow effects (radius 40px for halo, 20px for outer glow, 2px for inner glow)
+- 13-layer rendering with dual blend modes:
+  - Outer layers (4): Linear Dodge (Add) for saturated warm edges at configured outer temperature
+  - Transition layers (3): Screen blend - interpolated between outer and core temperatures
+  - Inner layers (4): Screen blend - approaching core temperature
+  - Core layers (2): Screen blend - at configured core temperature
+- Gaussian blur radii scale proportionally to font size (6x to 0.05x font size)
+- Linear Dodge creates characteristic saturated warm bleed at transition zone
 - DSEG7 Classic font provides authentic digital display appearance (7-segment LED style)
-- All rendering done with PIL/Pillow for maximum compatibility and quality
+- Thumbnail preview uses simplified solid-color rendering (for size preview only)
+- Config dialog provides temperature sliders with visual gradient preview
+- All rendering done with PIL/Pillow and NumPy for maximum compatibility and quality
 
 ## Common Issues
 
