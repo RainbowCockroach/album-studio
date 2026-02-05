@@ -385,13 +385,12 @@ class Config:
             "size_colors": {},  # Maps size ratio (e.g., "5x7") to color (hex string)
             "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)
             # Date stamp settings
-            "date_stamp_enabled": True,
             "date_stamp_format": "YY.MM.DD",
             "date_stamp_physical_height": 0.2,  # units (same as size tag units)
             "date_stamp_target_dpi": 300,  # pixels per unit (resolution)
             "date_stamp_position": "bottom-right",  # bottom-right, bottom-left, top-right, top-left
-            "date_stamp_color": "#FFAA44",  # bright orange-yellow for core text (vintage LED look)
-            "date_stamp_glow_color": "#FF7700",  # warm orange for outer glow
+            "date_stamp_temp_outer": 1800,  # Outer glow temperature in Kelvin (warmer, 1000-4000)
+            "date_stamp_temp_core": 6500,  # Core text temperature in Kelvin (hotter, 4000-10000)
             "date_stamp_glow_intensity": 80,  # 0-100
             "date_stamp_margin": 30,  # pixels from edge
             "date_stamp_opacity": 90  # 0-100
