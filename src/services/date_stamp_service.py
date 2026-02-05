@@ -112,8 +112,8 @@ class DateStampService:
         position = cast(str, self.config.get_setting("date_stamp_position", "bottom-right"))
         margin = cast(int, self.config.get_setting("date_stamp_margin", 30))
 
-        # Calculate font size based on physical dimensions
-        font_size = self._calculate_font_size(size_tag)
+        # Calculate font size based on physical dimensions and image size
+        font_size = self._calculate_font_size(size_tag, image.height)
 
         # Format the date string
         date_str = self._format_date(date, date_format)
@@ -137,29 +137,67 @@ class DateStampService:
         # Convert back to RGB for JPEG saving
         return result.convert('RGB')
 
-    def _calculate_font_size(self, size_tag: str) -> int:
+    def _calculate_font_size(self, size_tag: str, image_height: int) -> int:
         """
         Calculate font size in pixels based on physical print dimensions.
 
-        The date stamp maintains a fixed physical size (e.g., 0.2 units tall)
-        regardless of print size, so it appears consistent across different prints.
+        The date stamp maintains a fixed physical size (e.g., 0.5 units tall)
+        regardless of print size. This means for larger prints, the stamp takes
+        up a smaller percentage of the image, and for smaller prints, it takes
+        up a larger percentage.
+
+        Formula: font_pixel_height = (configured_height / print_height) × image_pixel_height
+
+        Example with configured height of 0.5:
+        - For 10x15 print: 0.5/15 = 0.0333 → stamp is 3.33% of image height
+        - For 9x5 print: 0.5/5 = 0.1 → stamp is 10% of image height
 
         Args:
             size_tag: Size tag like "9x6" representing 9×6 units (cm, inches, etc.)
+            image_height: Height of the image in pixels
 
         Returns:
             Font size in pixels
         """
-        physical_height = cast(float, self.config.get_setting("date_stamp_physical_height", 0.2))
-        pixels_per_unit = cast(int, self.config.get_setting("date_stamp_target_dpi", 300))
+        configured_height = cast(float, self.config.get_setting("date_stamp_physical_height", 0.5))
 
-        # Calculate pixel size: physical_size (units) × pixels_per_unit = pixels
-        font_size = int(physical_height * pixels_per_unit)
+        # Parse print height from size_tag (e.g., "9x6" → 6, "10x15" → 15)
+        print_height = self._parse_print_height(size_tag)
 
-        # Ensure reasonable bounds (minimum 18px, maximum 120px)
-        font_size = max(18, min(120, font_size))
+        # Calculate ratio: configured physical height / print physical height
+        ratio = configured_height / print_height
+
+        # Calculate font size in pixels
+        font_size = int(ratio * image_height)
+
+        # Ensure reasonable bounds (minimum 12px for readability)
+        font_size = max(12, font_size)
 
         return font_size
+
+    def _parse_print_height(self, size_tag: str) -> float:
+        """
+        Parse the print height from a size tag.
+
+        Size tags are in format "WxH" where W is width and H is height.
+        Examples: "9x6" → 6, "10x15" → 15, "4x6" → 6
+
+        Args:
+            size_tag: Size tag string like "9x6"
+
+        Returns:
+            Print height as float
+        """
+        try:
+            # Split by 'x' and get the second part (height)
+            parts = size_tag.lower().split('x')
+            if len(parts) == 2:
+                return float(parts[1])
+        except (ValueError, IndexError):
+            pass
+
+        # Default fallback if parsing fails
+        return 6.0
 
     def _format_date(self, date: datetime, format_str: str) -> str:
         """

@@ -85,7 +85,6 @@ class ConfigDialog(QDialog):
 
         # Date stamp widget attributes (created in create_date_stamp_tab)
         self.physical_height_spinbox: QDoubleSpinBox
-        self.dpi_spinbox: QSpinBox
         self.format_input: QLineEdit
         self.position_combo: QComboBox
         self.gradient_preview: TemperatureGradientPreview
@@ -443,8 +442,8 @@ class ConfigDialog(QDialog):
 
         instruction_label = QLabel(
             "Configure the vintage film camera-style date stamp that appears on exported images.\n"
-            "The date stamp maintains a fixed physical size across different print sizes.\n"
-            "Units match your size tags (e.g., if 9x6 = 9cm × 6cm, then 0.2 units = 0.2cm)."
+            "The stamp height is in the same units as your print sizes (e.g., cm or inches).\n"
+            "Example: 0.5 height on a 9x6 print = 0.5/6 ≈ 8% of image height."
         )
         instruction_label.setStyleSheet("color: #666; margin-bottom: 10px;")
         instruction_label.setWordWrap(True)
@@ -456,18 +455,10 @@ class ConfigDialog(QDialog):
         # Physical dimensions
         form_layout.addRow(
             "Stamp Height:",
-            self._create_spinbox_row("physical_height_spinbox", 0.1, 1.0,
-                                    self.config.get_setting("date_stamp_physical_height", 0.2),
-                                    suffix=" units", step=0.05, decimals=2,
-                                    hint="Recommended: 0.15-0.25 for small prints")
-        )
-
-        form_layout.addRow(
-            "Resolution:",
-            self._create_spinbox_row("dpi_spinbox", 150, 600,
-                                    self.config.get_setting("date_stamp_target_dpi", 300),
-                                    suffix=" px/unit", step=50,
-                                    hint="Standard: 300, High-res: 600")
+            self._create_spinbox_row("physical_height_spinbox", 0.1, 2.0,
+                                    self.config.get_setting("date_stamp_physical_height", 0.5),
+                                    suffix=" units", step=0.1, decimals=2,
+                                    hint="Physical height in same units as print size (cm/inches)")
         )
 
         # Date format with examples
@@ -942,7 +933,6 @@ class ConfigDialog(QDialog):
 
         # Save date stamp settings
         self.config.set_setting("date_stamp_physical_height", self.physical_height_spinbox.value())
-        self.config.set_setting("date_stamp_target_dpi", self.dpi_spinbox.value())
         self.config.set_setting("date_stamp_format", self.format_input.text().strip())
         self.config.set_setting("date_stamp_position", self.position_combo.currentText())
         self.config.set_setting("date_stamp_temp_outer", self.outer_temp_slider.value())
