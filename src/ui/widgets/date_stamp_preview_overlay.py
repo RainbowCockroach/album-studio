@@ -48,10 +48,6 @@ class DateStampPreviewOverlay(QLabel):
         # Get position setting
         self.position = config.get_setting("date_stamp_position", "bottom-right")
 
-        # Scale margin for thumbnail (original margin / typical image size * thumbnail size)
-        original_margin = config.get_setting("date_stamp_margin", 30)
-        self.stamp_margin = int(original_margin * thumbnail_size / 2000)  # Assume ~2000px typical image
-
         # Calculate font size for thumbnail
         physical_height = config.get_setting("date_stamp_physical_height", 0.2)
 
@@ -71,6 +67,9 @@ class DateStampPreviewOverlay(QLabel):
                 self.font_size = 10  # Default
         except Exception:
             self.font_size = 10  # Default fallback
+
+        # Auto-calculate margin based on font size (50% of font height)
+        self.stamp_margin = max(2, int(self.font_size * 0.5))
 
         self.update()
 

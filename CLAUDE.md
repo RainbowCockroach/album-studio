@@ -302,17 +302,17 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 ### Date Stamp Rendering
 
-- Uses physics-based blackbody color temperature gradient for authentic warm-edge glow
-- Color temperature configurable: outer glow (1000-4000K) and core text (4000-10000K)
+- Simulates backlit film camera date stamp projection (light through mask from behind film)
+- Color temperature configurable: outer rim (1000-4000K) and core text (4000-10000K)
 - `kelvin_to_rgb()` function converts temperature to accurate RGB using Planckian locus approximation
 - Font size automatically scales based on physical print dimensions to maintain consistent appearance across different print sizes
-- 13-layer rendering with dual blend modes:
-  - Outer layers (4): Linear Dodge (Add) for saturated warm edges at configured outer temperature
-  - Transition layers (3): Screen blend - interpolated between outer and core temperatures
-  - Inner layers (4): Screen blend - approaching core temperature
-  - Core layers (2): Screen blend - at configured core temperature
-- Gaussian blur radii scale proportionally to font size (6x to 0.05x font size)
-- Linear Dodge creates characteristic saturated warm bleed at transition zone
+- Tight rim glow approach (mimics real film camera effect):
+  1. Create sharp text mask (core segments)
+  2. Morphological dilation creates consistent thin rim (~4% of font size)
+  3. Tiny blur for soft edge transition (~2% of font size)
+  4. Temperature gradient: warm rim color → bright core color
+  5. Blend onto image with Screen mode once
+- Rim width scales with font size for consistent appearance across print sizes
 - DSEG7 Classic font provides authentic digital display appearance (7-segment LED style)
 - Thumbnail preview uses simplified solid-color rendering (for size preview only)
 - Config dialog provides temperature sliders with visual gradient preview
