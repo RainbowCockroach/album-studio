@@ -2,8 +2,8 @@
 
 import os
 from datetime import datetime
-from typing import Optional, Tuple
-from PIL import Image, ImageDraw, ImageFont, ImageFilter, ImageChops
+from typing import Optional, Tuple, Union, cast
+from PIL import Image, ImageDraw, ImageFont, ImageFilter
 import numpy as np
 from ..models.config import Config
 from ..utils.paths import get_assets_dir
@@ -36,9 +36,9 @@ class DateStampService:
             PIL Image with date stamp applied
         """
         # Get settings
-        date_format = self.config.get_setting("date_stamp_format", "'YY.MM.DD")
-        position = self.config.get_setting("date_stamp_position", "bottom-right")
-        margin = self.config.get_setting("date_stamp_margin", 30)
+        date_format = cast(str, self.config.get_setting("date_stamp_format", "'YY.MM.DD"))
+        position = cast(str, self.config.get_setting("date_stamp_position", "bottom-right"))
+        margin = cast(int, self.config.get_setting("date_stamp_margin", 30))
 
         # Calculate font size based on physical dimensions
         font_size = self._calculate_font_size(size_tag)
@@ -78,8 +78,8 @@ class DateStampService:
         Returns:
             Font size in pixels
         """
-        physical_height = self.config.get_setting("date_stamp_physical_height", 0.2)
-        pixels_per_unit = self.config.get_setting("date_stamp_target_dpi", 300)
+        physical_height = cast(float, self.config.get_setting("date_stamp_physical_height", 0.2))
+        pixels_per_unit = cast(int, self.config.get_setting("date_stamp_target_dpi", 300))
 
         # Calculate pixel size: physical_size (units) × pixels_per_unit = pixels
         font_size = int(physical_height * pixels_per_unit)
@@ -113,7 +113,7 @@ class DateStampService:
 
         return result
 
-    def _load_font(self, size: int) -> ImageFont.FreeTypeFont:
+    def _load_font(self, size: int) -> Union[ImageFont.FreeTypeFont, ImageFont.ImageFont]:
         """
         Load DSEG7 Classic font at the specified size with caching.
 
@@ -157,7 +157,7 @@ class DateStampService:
         self,
         image_size: Tuple[int, int],
         text: str,
-        font: ImageFont.FreeTypeFont,
+        font: Union[ImageFont.FreeTypeFont, ImageFont.ImageFont],
         position: str,
         margin: int
     ) -> Image.Image:
@@ -185,10 +185,10 @@ class DateStampService:
         width, height = image_size
 
         # Get color settings with proper defaults (vintage orange tones)
-        main_color = self.config.get_setting("date_stamp_color", "#FFAA44") or "#FFAA44"  # Bright orange-yellow core (LED look)
-        glow_color = self.config.get_setting("date_stamp_glow_color", "#FF7700") or "#FF7700"  # Warm orange glow
-        glow_intensity = self.config.get_setting("date_stamp_glow_intensity", 80) or 80
-        opacity = self.config.get_setting("date_stamp_opacity", 90) or 90
+        main_color = cast(str, self.config.get_setting("date_stamp_color", "#FFAA44") or "#FFAA44")  # Bright orange-yellow core (LED look)
+        glow_color = cast(str, self.config.get_setting("date_stamp_glow_color", "#FF7700") or "#FF7700")  # Warm orange glow
+        glow_intensity = cast(int, self.config.get_setting("date_stamp_glow_intensity", 80) or 80)
+        opacity = cast(int, self.config.get_setting("date_stamp_opacity", 90) or 90)
 
         # Create transparent canvas
         canvas = Image.new('RGBA', (width, height), (0, 0, 0, 0))
@@ -210,7 +210,7 @@ class DateStampService:
         glow_factor = glow_intensity / 100.0
 
         # Get font size for proportional scaling
-        font_size = font.size if hasattr(font, 'size') else text_height
+        font_size = getattr(font, 'size', text_height)
 
         # Parse colors from config
         main_rgb = self._hex_to_rgb(main_color)

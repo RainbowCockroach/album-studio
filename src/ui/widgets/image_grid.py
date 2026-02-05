@@ -1,3 +1,4 @@
+from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
                              QVBoxLayout, QFrame, QApplication)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
@@ -241,7 +242,7 @@ class ImageGrid(QWidget):
             return False
 
         self.selected_items = set(self.current_project.images)
-        for image_item, widget in self.image_widgets.items():
+        for _image_item, widget in self.image_widgets.items():
             widget.set_selected(True, self.selection_mode_type)
         return True
 
@@ -370,7 +371,7 @@ class ImageWidget(QFrame):
         if pixmap and not pixmap.isNull():
             self.thumbnail_label.setPixmap(pixmap)
 
-    def set_selected(self, selected: bool, mode: str = None):
+    def set_selected(self, selected: bool, mode: Optional[str] = None):
         """
         Set visual selection state for batch selection mode.
 
