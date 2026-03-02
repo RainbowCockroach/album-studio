@@ -1,12 +1,14 @@
 import copy
+import os
 from PyQt6.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QListWidget, QPushButton,
     QLabel, QLineEdit, QMessageBox, QInputDialog, QSplitter, QWidget,
     QFileDialog, QTableWidget, QTableWidgetItem, QHeaderView,
     QDoubleSpinBox, QTabWidget, QFrame, QSpinBox,
-    QListWidgetItem, QColorDialog, QFormLayout, QComboBox
+    QListWidgetItem, QColorDialog, QFormLayout, QComboBox,
+    QProgressDialog
 )
-from PyQt6.QtCore import Qt, QLocale
+from PyQt6.QtCore import Qt, QLocale, QThread, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QLinearGradient, QBrush
 from src.models.config import generate_random_color
 from src.services.date_stamp_service import kelvin_to_rgb
@@ -58,6 +60,48 @@ class TemperatureGradientPreview(QWidget):
         painter.drawText(self.width() - 45, self.height() - 8, f"{self.temp_core}K")
 
         painter.end()
+
+
+class ImportPrintedWorker(QThread):
+    """Worker thread for importing printed images."""
+
+    progress_updated = pyqtSignal(int, int, str)  # current, total, phase_text
+    import_complete = pyqtSignal(dict)  # stats dict
+
+    def __init__(self, source_dir: str, workspace_dir: str, project_manager):
+        super().__init__()
+        self.source_dir = source_dir
+        self.workspace_dir = workspace_dir
+        self.project_manager = project_manager
+
+    def run(self):
+        # Phase 1: Create thumbnails
+        def thumbnail_progress(current, total):
+            self.progress_updated.emit(current, total, "Creating thumbnails")
+
+        stats = self.project_manager.import_printed_images(
+            self.source_dir, self.workspace_dir,
+            progress_callback=thumbnail_progress
+        )
+
+        # Phase 2: Extract features (vectorize)
+        try:
+            from src.services.image_similarity_service import ImageSimilarityService
+            service = ImageSimilarityService()
+            printed_folder = os.path.join(self.workspace_dir, "_past_printed")
+            supported = ['.jpg', '.jpeg', '.png', '.heic']
+
+            def feature_progress(current, total):
+                self.progress_updated.emit(current, total, "Extracting features")
+
+            service.load_images_from_directory(
+                printed_folder, supported, progress_callback=feature_progress
+            )
+        except Exception:
+            import traceback
+            traceback.print_exc()
+
+        self.import_complete.emit(stats)
 
 
 class ConfigDialog(QDialog):
@@ -177,6 +221,15 @@ class ConfigDialog(QDialog):
 
         layout.addLayout(workspace_layout)
 
+        # Import Printed Images button
+        import_layout = QHBoxLayout()
+        import_layout.addStretch()
+        import_btn = QPushButton("Import Printed Images...")
+        import_btn.setToolTip("Import existing printed images for similarity search")
+        import_btn.clicked.connect(self.on_import_printed_clicked)
+        import_layout.addWidget(import_btn)
+        layout.addLayout(import_layout)
+
         # Add separator
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
@@ -214,6 +267,59 @@ class ConfigDialog(QDialog):
         )
         if folder:
             self.workspace_input.setText(folder)
+
+    def on_import_printed_clicked(self):
+        """Handle Import Printed Images button click."""
+        workspace_dir = self.workspace_input.text().strip()
+        if not workspace_dir or not os.path.isdir(workspace_dir):
+            QMessageBox.warning(
+                self, "No Workspace",
+                "Please set a valid workspace directory first."
+            )
+            return
+
+        source_dir = QFileDialog.getExistingDirectory(
+            self, "Select Folder with Printed Images", workspace_dir
+        )
+        if not source_dir:
+            return
+
+        self._progress_dialog = QProgressDialog(
+            "Preparing...", "Cancel", 0, 100, self
+        )
+        self._progress_dialog.setWindowTitle("Importing Printed Images")
+        self._progress_dialog.setMinimumDuration(0)
+        self._progress_dialog.setValue(0)
+        self._progress_dialog.setAutoClose(False)
+
+        self._import_worker = ImportPrintedWorker(
+            source_dir, workspace_dir, self.project_manager
+        )
+        self._import_worker.progress_updated.connect(self._on_import_progress)
+        self._import_worker.import_complete.connect(self._on_import_complete)
+        self._import_worker.finished.connect(self._import_worker.deleteLater)
+        self._progress_dialog.canceled.connect(self._import_worker.terminate)
+        self._import_worker.start()
+
+    def _on_import_progress(self, current: int, total: int, phase: str):
+        """Update progress dialog during import."""
+        if hasattr(self, '_progress_dialog') and self._progress_dialog:
+            self._progress_dialog.setMaximum(total)
+            self._progress_dialog.setValue(current)
+            self._progress_dialog.setLabelText(f"{phase}: {current}/{total}")
+
+    def _on_import_complete(self, stats: dict):
+        """Handle import completion."""
+        if hasattr(self, '_progress_dialog') and self._progress_dialog:
+            self._progress_dialog.close()
+            self._progress_dialog = None
+
+        imported = stats.get('imported', 0)
+        skipped = stats.get('skipped', 0)
+        msg = f"Imported {imported} images"
+        if skipped:
+            msg += f" ({skipped} skipped)"
+        QMessageBox.information(self, "Import Complete", msg)
 
     def create_size_group_tab(self):
         """Create size group settings tab."""
