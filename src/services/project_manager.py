@@ -2,7 +2,7 @@ import json
 import os
 import shutil
 import zipfile
-from typing import List, Optional
+from typing import Callable, List, Optional
 from ..models.project import Project
 from ..utils.paths import get_user_data_dir
 from PIL import Image
@@ -168,7 +168,7 @@ class ProjectManager:
             self,
             project_name: str,
             workspace_dir: Optional[str] = None,
-            thumbnail_size: int = 800) -> dict:
+            thumbnail_size: int = 200) -> dict:
         """Archive a project by:
         1. Creating thumbnails of all output folder images → save to '_past_printed' folder at workspace root
         2. Zipping the output folder → save to workspace root
@@ -300,5 +300,66 @@ class ProjectManager:
             stats['project_removed'] = True
         else:
             pass
+
+        return stats
+
+    def import_printed_images(
+            self,
+            source_dir: str,
+            workspace_dir: str,
+            thumbnail_size: int = 200,
+            progress_callback: Optional[Callable[[int, int], None]] = None) -> dict:
+        """Import images from a source directory into _past_printed as thumbnails.
+
+        Args:
+            source_dir: Directory containing images to import
+            workspace_dir: Workspace directory root
+            thumbnail_size: Maximum thumbnail size in pixels (default 200)
+            progress_callback: Optional callback(current, total) for progress
+
+        Returns:
+            dict with {'imported': int, 'skipped': int}
+        """
+        supported_extensions = ('.jpg', '.jpeg', '.png', '.heic')
+        printed_folder = os.path.join(workspace_dir, "_past_printed")
+        os.makedirs(printed_folder, exist_ok=True)
+
+        stats = {'imported': 0, 'skipped': 0}
+
+        # Collect source image paths (top-level only)
+        source_files = []
+        for filename in os.listdir(source_dir):
+            file_path = os.path.join(source_dir, filename)
+            if os.path.isfile(file_path) and filename.lower().endswith(supported_extensions):
+                source_files.append(file_path)
+
+        total = len(source_files)
+
+        for i, src_path in enumerate(source_files):
+            try:
+                filename = os.path.basename(src_path)
+                base_name, _ = os.path.splitext(filename)
+                dest_path = os.path.join(printed_folder, f"{base_name}.jpg")
+
+                # Handle duplicate filenames
+                counter = 1
+                while os.path.exists(dest_path):
+                    dest_path = os.path.join(printed_folder, f"{base_name}_{counter}.jpg")
+                    counter += 1
+
+                with Image.open(src_path) as img:
+                    if img.mode in ('RGBA', 'LA', 'P'):
+                        img = img.convert('RGB')
+                    img.thumbnail((thumbnail_size, thumbnail_size), Image.Resampling.LANCZOS)
+                    img.save(dest_path, 'JPEG', quality=85)
+
+                stats['imported'] += 1
+            except Exception:
+                import traceback
+                traceback.print_exc()
+                stats['skipped'] += 1
+
+            if progress_callback:
+                progress_callback(i + 1, total)
 
         return stats
