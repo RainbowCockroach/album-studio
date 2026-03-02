@@ -30,7 +30,7 @@ def build_macos():
         '--windowed',  # No console window
         '--onedir',  # Create a bundle directory
         '--icon=assets/icon.icns' if os.path.exists('assets/icon.icns') else '',
-        '--add-data=config:config',  # Include config folder
+        '--add-data=assets:assets',  # Include assets folder (fonts, icons)
         '--noconfirm',
         'src/main.py'
     ]
@@ -52,7 +52,7 @@ def build_windows():
         '--windowed',  # No console window
         '--onedir',  # Create a bundle directory
         '--icon=assets/icon.ico' if os.path.exists('assets/icon.ico') else '',
-        '--add-data=config;config',  # Include config folder (Windows uses semicolon)
+        '--add-data=assets;assets',  # Include assets folder (fonts, icons) (Windows uses semicolon)
         '--noconfirm',
         'src/main.py'
     ]
@@ -75,7 +75,7 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[
-        ('config', 'config'),
+        ('assets', 'assets'),
     ],
     hiddenimports=[],
     hookspath=[],
