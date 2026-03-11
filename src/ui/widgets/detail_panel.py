@@ -2,6 +2,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeWidget, QTreeWidgetItem,
                              QLabel, QHeaderView, QPushButton)
 from PyQt6.QtCore import Qt, pyqtSignal
 
+from ..theme import STYLE_DETAIL_HEADER
+
 
 class DetailPanel(QWidget):
     """Sidebar widget to display detailed information about the selected image."""
@@ -20,7 +22,7 @@ class DetailPanel(QWidget):
         # Header
         header = QLabel("Image Details")
         header.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        header.setStyleSheet("font-weight: bold; padding: 10px; background-color: #333; color: white;")
+        header.setStyleSheet(STYLE_DETAIL_HEADER)
         layout.addWidget(header)
 
         # Tree widget for properties

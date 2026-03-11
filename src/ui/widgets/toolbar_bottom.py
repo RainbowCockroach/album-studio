@@ -1,6 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QComboBox, QPushButton, QLabel
 from PyQt6.QtCore import pyqtSignal
-from PyQt6.QtGui import QColor, QPalette
+
+from ..theme import STYLE_CANCEL_BTN
 
 
 class ToolbarBottom(QWidget):
@@ -22,6 +23,7 @@ class ToolbarBottom(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.setObjectName("bottomToolbar")
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
 
@@ -84,10 +86,7 @@ class ToolbarBottom(QWidget):
 
         # Cancel button (hidden initially)
         self.cancel_btn = QPushButton("Cancel")
-        pal = self.cancel_btn.palette()
-        pal.setColor(QPalette.ColorRole.Button, QColor("yellow"))
-        self.cancel_btn.setPalette(pal)
-        self.cancel_btn.setAutoFillBackground(True)
+        self.cancel_btn.setStyleSheet(STYLE_CANCEL_BTN)
         self.cancel_btn.clicked.connect(self.on_cancel_clicked)
         self.cancel_btn.hide()
         layout.addWidget(self.cancel_btn)

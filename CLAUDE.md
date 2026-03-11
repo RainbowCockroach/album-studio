@@ -88,6 +88,7 @@ The codebase follows a clean separation of concerns:
 
 **UI** (`src/ui/`):
 
+- `theme.py`: **Central theme** — all colors, global stylesheet, and style helpers (see Theme System section)
 - `MainWindow`: Orchestrates the three main UI sections
 - `widgets/toolbar_top.py` (`ProjectToolbar`): Top bar with project dropdown + action buttons
 - `widgets/image_grid.py` (`ImageGrid`): Center grid displaying image thumbnails with preview mode support
@@ -153,7 +154,7 @@ All widget-to-widget communication goes through MainWindow - widgets never talk 
 2. User clicks image in `ImageGrid`
 3. Signal emits to `MainWindow.on_image_clicked()`
 4. `ImageItem.set_tags()` stores tags
-5. `ImageGrid.refresh_display()` updates border colors (green=fully tagged, orange=partial, gray=none)
+5. `ImageGrid.refresh_display()` updates card background colors (tinted=fully tagged, cream=partial, neutral=none)
 6. `ProjectManager.save_project()` persists to JSON
 
 **Cropping workflow:**
@@ -279,6 +280,56 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 
 - **Signal/slot safety:** Never directly connect widgets to other widgets. All communication goes through `MainWindow` as the orchestrator (see Signal/Slot Architecture section).
 
+## Theme System (`src/ui/theme.py`)
+
+**CRITICAL:** All colors and styles are centralized in `src/ui/theme.py`. Never hardcode hex colors or inline stylesheets in widget files. Always import from `theme.py`.
+
+### Structure
+
+`theme.py` contains (in order):
+
+1. **Color constants** — grouped by purpose (surfaces, text, buttons, cards, scrollbar, etc.)
+2. **Helper functions** — `lighten_color()`, `card_style()`, `retro_button_style()`
+3. **Pre-built widget styles** — `STYLE_DELETE_BTN`, `STYLE_CANCEL_BTN`, `STYLE_UPDATE_BTN`, etc.
+4. **`GLOBAL_STYLESHEET`** — app-wide QSS applied in `main.py` via `app.setStyleSheet()`
+
+### Visual Design Language
+
+- **Warm retro palette**: Cream/beige tones (`#ddd8d0` window, `#c8c3bb` grid background)
+- **Retro 3D buttons**: `outset`/`inset` borders with `border-radius: 4px` for a raised/sunken look
+- **Card-based image grid**: Rounded corners (`border-radius: 8px`), subtle drop shadows, 16px spacing
+- **Tag status via background color** (not border color):
+  - Untagged: warm white (`CARD_UNTAGGED_BG`)
+  - Fully tagged: light tint derived from size color via `lighten_color()`
+  - Partially tagged: warm cream (`CARD_PARTIAL_BG`)
+  - Right-click selected: cool blue (`CARD_SELECTED_BG`)
+  - Delete/date stamp selection: tinted red/green (`CARD_DELETE_BG` / `CARD_DATESTAMP_BG`)
+
+### How to Add New Styles
+
+1. **New color?** Add a constant to the appropriate section in `theme.py`
+2. **New button variant?** Use `retro_button_style(bg, text, pressed, hover)` to generate it, store as `STYLE_*` constant
+3. **New card state?** Add `CARD_*_BG` and `CARD_*_BORDER` constants, use `card_style()` in `update_border()`
+4. **New widget style?** Add a `STYLE_*` constant, import it in the widget file
+5. **Global change?** Update `GLOBAL_STYLESHEET` in `theme.py` — it uses f-string interpolation from the color constants
+
+### Example: Adding a Styled Button
+
+```python
+# In theme.py — add color constants:
+MY_BTN_BG = '#d0a0e0'
+MY_BTN_TEXT = '#4a0070'
+MY_BTN_PRESSED = '#b888c8'
+MY_BTN_HOVER = '#e0b8f0'
+
+# Generate the style:
+STYLE_MY_BTN = retro_button_style(MY_BTN_BG, MY_BTN_TEXT, MY_BTN_PRESSED, MY_BTN_HOVER)
+
+# In widget file — import and apply:
+from ..theme import STYLE_MY_BTN
+self.my_btn.setStyleSheet(STYLE_MY_BTN)
+```
+
 ## Image Processing Details
 
 ### HEIC Support
@@ -366,6 +417,13 @@ pixmap.scaled(size, size, aspectRatioMode=1, transformMode=1)
 - Archive only processes images in output folder, not input folder
 - Archive workflow in `src/services/project_manager.py` `archive_project()` method
 
+**Styling not applying:**
+
+- All colors/styles must come from `src/ui/theme.py` — check imports
+- If a widget's inline `setStyleSheet()` overrides the global theme, ensure it includes all needed properties (e.g., `border-radius` for buttons)
+- Image card styles are set dynamically in `ImageWidget.update_border()` using `card_style()` from theme
+- Object names (`setObjectName`) must match selectors in `GLOBAL_STYLESHEET` (e.g., `#topToolbar`, `#imageGridContainer`)
+
 **Date stamps not appearing:**
 
 - Verify `ImageItem.date_stamp` flag is True in project_data.json
@@ -424,6 +482,17 @@ The `config/` and `assets/` folders are included in builds, but `data/projects.j
 When modifying the build process, note that macOS uses `:` as separator (`config:config`, `assets:assets`) while Windows uses `;` (`config;config`, `assets;assets`) for `--add-data`.
 
 ## Critical Implementation Patterns
+
+### Centralized Styling (Theme System)
+
+**CRITICAL:** Do NOT hardcode colors or `setStyleSheet()` strings directly in widget files. All styling goes through `src/ui/theme.py`:
+
+- Import color constants and pre-built style strings from `theme.py`
+- Use `card_style()` for image card QFrame stylesheets
+- Use `retro_button_style()` for action button stylesheets
+- Use `lighten_color()` to derive light tints from any hex color
+- The global stylesheet (`GLOBAL_STYLESHEET`) handles default QPushButton, QComboBox, QScrollBar, QLabel, QLineEdit, and QTreeWidget styling — widgets get retro styling automatically without per-widget setup
+- Widgets that need object-name-based styling use `setObjectName()` (e.g., `"topToolbar"`, `"bottomToolbar"`, `"imageGridContainer"`)
 
 ### Coordinate System Conversions (Preview Mode)
 
@@ -523,6 +592,7 @@ album-studio/
 │   ├── services/            # Business logic (ProjectManager, CropService, ImageProcessor, ImageSimilarityService, DateStampService)
 │   ├── ui/
 │   │   ├── main_window.py   # Main orchestrator window
+│   │   ├── theme.py         # Central theme: colors, global stylesheet, style helpers
 │   │   ├── widgets/         # Reusable UI components (ImageGrid, toolbars, panels, overlays)
 │   │   └── dialogs/         # Modal dialogs (ConfigDialog, FindSimilarDialog, ImageViewerDialog)
 │   └── utils/               # Utilities (ImageLoader for HEIC support, paths)
