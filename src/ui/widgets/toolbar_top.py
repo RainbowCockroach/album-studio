@@ -4,6 +4,8 @@ from PyQt6.QtWidgets import (QWidget, QHBoxLayout, QComboBox, QPushButton,
 from PyQt6.QtCore import pyqtSignal
 
 from ...version import __version__
+from ..theme import (STYLE_DELETE_BTN, STYLE_SELECT_ALL_BTN, STYLE_DATESTAMP_BTN,
+                     STYLE_UPDATE_BTN, STYLE_TOTAL_COST, STYLE_VERSION_LABEL)
 
 
 class ProjectToolbar(QWidget):
@@ -28,6 +30,7 @@ class ProjectToolbar(QWidget):
         self.init_ui()
 
     def init_ui(self):
+        self.setObjectName("topToolbar")
         layout = QHBoxLayout()
         layout.setContentsMargins(10, 10, 10, 10)
 
@@ -62,7 +65,7 @@ class ProjectToolbar(QWidget):
 
         # Total cost display
         self.total_cost_label = QLabel("Total: 0")
-        self.total_cost_label.setStyleSheet("font-weight: bold; padding: 0 10px;")
+        self.total_cost_label.setStyleSheet(STYLE_TOTAL_COST)
         layout.addWidget(self.total_cost_label)
 
         # Add Photo button
@@ -77,7 +80,7 @@ class ProjectToolbar(QWidget):
 
         # Delete mode buttons (Hidden by default)
         self.delete_confirm_btn = QPushButton("Delete")
-        self.delete_confirm_btn.setStyleSheet("background-color: #ffcccc; color: red; font-weight: bold;")
+        self.delete_confirm_btn.setStyleSheet(STYLE_DELETE_BTN)
         self.delete_confirm_btn.clicked.connect(self.delete_confirmed.emit)
         self.delete_confirm_btn.hide()
         layout.addWidget(self.delete_confirm_btn)
@@ -90,7 +93,7 @@ class ProjectToolbar(QWidget):
         # Select All/Deselect All button (shown in selection modes)
         self.select_all_btn = QPushButton("Select All")
         self.select_all_btn.setCheckable(True)
-        self.select_all_btn.setStyleSheet("background-color: #cce5ff; font-weight: bold;")
+        self.select_all_btn.setStyleSheet(STYLE_SELECT_ALL_BTN)
         self.select_all_btn.clicked.connect(self.on_select_all_clicked)
         self.select_all_btn.hide()
         layout.addWidget(self.select_all_btn)
@@ -102,7 +105,7 @@ class ProjectToolbar(QWidget):
 
         # Date Stamp mode buttons (Hidden by default)
         self.date_stamp_confirm_btn = QPushButton("Mark to set date stamp")
-        self.date_stamp_confirm_btn.setStyleSheet("background-color: #ccf0cc; color: green; font-weight: bold;")
+        self.date_stamp_confirm_btn.setStyleSheet(STYLE_DATESTAMP_BTN)
         self.date_stamp_confirm_btn.clicked.connect(self.date_stamp_confirmed.emit)
         self.date_stamp_confirm_btn.hide()
         layout.addWidget(self.date_stamp_confirm_btn)
@@ -116,18 +119,14 @@ class ProjectToolbar(QWidget):
 
         # Update button (hidden by default, shown when update available)
         self.update_btn = QPushButton()
-        self.update_btn.setStyleSheet(
-            "QPushButton { background-color: #4CAF50; color: white; font-weight: bold; "
-            "padding: 5px 15px; border-radius: 4px; }"
-            "QPushButton:hover { background-color: #45a049; }"
-        )
+        self.update_btn.setStyleSheet(STYLE_UPDATE_BTN)
         self.update_btn.clicked.connect(self.update_requested.emit)
         self.update_btn.hide()
         layout.addWidget(self.update_btn)
 
         # Version label
         self.version_label = QLabel(f"v{__version__}")
-        self.version_label.setStyleSheet("color: #888; font-size: 11px; padding: 0 5px;")
+        self.version_label.setStyleSheet(STYLE_VERSION_LABEL)
         layout.addWidget(self.version_label)
 
         self.setLayout(layout)

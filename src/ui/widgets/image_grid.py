@@ -1,11 +1,22 @@
 from typing import Optional
 from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
-                             QVBoxLayout, QFrame, QApplication)
+                             QVBoxLayout, QFrame, QApplication,
+                             QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
 from PyQt6.QtGui import QPixmap, QColor
 from .crop_overlay import CropOverlay
 from .date_stamp_preview_overlay import DateStampPreviewOverlay
 from src.utils.image_loader import ImageLoader
+from ..theme import (
+    lighten_color, card_style, STYLE_FILENAME_LABEL, TEXT, TEXT_MUTED,
+    CARD_PLACEHOLDER_RGB, TAG_DEFAULT_COLOR,
+    CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
+    CARD_PARTIAL_BG, CARD_PARTIAL_BORDER, CARD_PARTIAL_TEXT,
+    CARD_SELECTED_BG, CARD_SELECTED_BORDER,
+    CARD_DELETE_BG, CARD_DELETE_BORDER, CARD_DELETE_TEXT,
+    CARD_DATESTAMP_BG, CARD_DATESTAMP_BORDER, CARD_DATESTAMP_TEXT,
+    CARD_GENERIC_BG, CARD_GENERIC_BORDER, CARD_GENERIC_TEXT,
+)
 
 
 class ThumbnailLoaderWorker(QThread):
@@ -64,8 +75,10 @@ class ImageGrid(QWidget):
 
         # Create grid container
         self.grid_container = QWidget()
+        self.grid_container.setObjectName("imageGridContainer")
         self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(10)
+        self.grid_layout.setSpacing(16)
+        self.grid_layout.setContentsMargins(16, 16, 16, 16)
         self.grid_container.setLayout(self.grid_layout)
 
         scroll_area.setWidget(self.grid_container)
@@ -318,11 +331,8 @@ class ImageWidget(QFrame):
         self.init_ui()
 
     def init_ui(self):
-        self.setFrameStyle(QFrame.Shape.Box)
-        self.setLineWidth(3)
-
         layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        layout.setContentsMargins(10, 10, 10, 10)
 
         # Thumbnail
         self.thumbnail_label = QLabel()
@@ -340,14 +350,15 @@ class ImageWidget(QFrame):
             # Show placeholder while loading in background
             self._show_placeholder()
 
-        layout.addWidget(self.thumbnail_label)
+        layout.addWidget(self.thumbnail_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         # Filename label
         filename = self.image_item.file_path.split('/')[-1]
-        filename_label = QLabel(filename)
-        filename_label.setWordWrap(True)
-        filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(filename_label)
+        self.filename_label = QLabel(filename)
+        self.filename_label.setWordWrap(True)
+        self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.filename_label.setStyleSheet(STYLE_FILENAME_LABEL)
+        layout.addWidget(self.filename_label)
 
         # Tag info label
         self.tag_label = QLabel()
@@ -356,13 +367,22 @@ class ImageWidget(QFrame):
         layout.addWidget(self.tag_label)
 
         self.setLayout(layout)
+
+        # Subtle drop shadow for card depth
+        shadow = QGraphicsDropShadowEffect()
+        shadow.setBlurRadius(12)
+        shadow.setXOffset(0)
+        shadow.setYOffset(2)
+        shadow.setColor(QColor(0, 0, 0, 25))
+        self.setGraphicsEffect(shadow)
+
         self.update_border()
 
     def _show_placeholder(self):
         """Show a placeholder while thumbnail is loading."""
         # Create a simple gray placeholder pixmap
         placeholder = QPixmap(self.thumbnail_size, self.thumbnail_size)
-        placeholder.fill(QColor(220, 220, 220))  # Light gray
+        placeholder.fill(QColor(*CARD_PLACEHOLDER_RGB))
         self.thumbnail_label.setPixmap(placeholder)
         self.thumbnail_label.setText("")  # Clear any text
 
@@ -397,54 +417,57 @@ class ImageWidget(QFrame):
             self.thumbnail_label.setText("No Image")
 
     def update_border(self):
-        """Update border color based on tag status or selection."""
+        """Update card appearance based on tag status or selection."""
+        # Batch selection mode (delete, date stamp, etc.)
         if self.is_selected:
-            # Different colors for different selection modes
             if self.selection_mode_type == 'delete':
-                # Red border for delete mode
-                self.setStyleSheet("QFrame { border: 4px solid red; background-color: #ffeeee; }")
+                bg, border_color = CARD_DELETE_BG, CARD_DELETE_BORDER
                 self.tag_label.setText("Selected for Deletion")
+                self.tag_label.setStyleSheet(f"color: {CARD_DELETE_TEXT}; font-weight: bold;")
             elif self.selection_mode_type == 'date_stamp':
-                # Green border for date stamp mode
-                self.setStyleSheet("QFrame { border: 4px solid green; background-color: #eeffee; }")
+                bg, border_color = CARD_DATESTAMP_BG, CARD_DATESTAMP_BORDER
                 self.tag_label.setText("Selected for Date Stamp")
+                self.tag_label.setStyleSheet(f"color: {CARD_DATESTAMP_TEXT}; font-weight: bold;")
             else:
-                # Fallback for unknown mode
-                self.setStyleSheet("QFrame { border: 4px solid blue; background-color: #eeeeff; }")
+                bg, border_color = CARD_GENERIC_BG, CARD_GENERIC_BORDER
                 self.tag_label.setText("Selected")
+                self.tag_label.setStyleSheet(f"color: {CARD_GENERIC_TEXT}; font-weight: bold;")
+            self.setStyleSheet(card_style(bg, border_color, 2))
             return
 
-        # Determine background color based on current selection
-        bg_style = "background-color: #e6f0ff;" if self.is_current_selected else ""
-
-        # Date stamp indicator
+        # Determine tag text
         date_stamp_indicator = " 📅" if self.image_item.add_date_stamp else ""
 
         if self.image_item.is_fully_tagged():
-            # Get color from config for fully tagged images (color is global per size ratio)
+            tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}{date_stamp_indicator}"
+        elif self.image_item.has_tags():
+            tag_text = f"{self.image_item.album_tag or ''}\n{self.image_item.size_tag or ''}{date_stamp_indicator}"
+        else:
+            tag_text = "No tags" + date_stamp_indicator
+        self.tag_label.setText(tag_text)
+
+        # Determine card style based on state
+        if self.is_current_selected:
+            bg, border_color = CARD_SELECTED_BG, CARD_SELECTED_BORDER
+            self.tag_label.setStyleSheet(f"color: {TEXT};")
+        elif self.image_item.is_fully_tagged():
             if self.config and self.image_item.size_tag:
                 size_color = self.config.get_size_color(self.image_item.size_tag)
                 if not size_color:
-                    size_color = "#4CAF50"  # Default green if not set
+                    size_color = TAG_DEFAULT_COLOR
             else:
-                size_color = "#4CAF50"  # Default green
-
-            border_color = "#0066cc" if self.is_current_selected else size_color
-            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            tag_text = f"{self.image_item.album_tag}\n{self.image_item.size_tag}{date_stamp_indicator}"
-            self.tag_label.setText(tag_text)
+                size_color = TAG_DEFAULT_COLOR
+            bg = lighten_color(size_color, 0.82)
+            border_color = lighten_color(size_color, 0.45)
+            self.tag_label.setStyleSheet(f"color: {size_color}; font-weight: bold;")
         elif self.image_item.has_tags():
-            # Yellow/orange border for partially tagged
-            border_color = "#0066cc" if self.is_current_selected else "orange"
-            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            tag_text = f"{self.image_item.album_tag or ''}\n{self.image_item.size_tag or ''}{date_stamp_indicator}"
-            self.tag_label.setText(tag_text)
+            bg, border_color = CARD_PARTIAL_BG, CARD_PARTIAL_BORDER
+            self.tag_label.setStyleSheet(f"color: {CARD_PARTIAL_TEXT}; font-weight: bold;")
         else:
-            # Default border for untagged
-            border_color = "#0066cc" if self.is_current_selected else "lightgray"
-            self.setStyleSheet(f"QFrame {{ border: 3px solid {border_color}; {bg_style} }}")
-            tag_text = "No tags" + date_stamp_indicator
-            self.tag_label.setText(tag_text)
+            bg, border_color = CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER
+            self.tag_label.setStyleSheet(f"color: {TEXT_MUTED};")
+
+        self.setStyleSheet(card_style(bg, border_color))
 
     def _handle_single_click(self):
         """Handle single click after delay (if not double-clicked)."""
