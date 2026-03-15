@@ -31,8 +31,9 @@ def build_macos():
         '--onedir',  # Create a bundle directory
         '--icon=assets/icon.icns' if os.path.exists('assets/icon.icns') else '',
         '--add-data=assets:assets',  # Include assets folder (fonts, icons)
+        '--paths=.',  # Ensure src package is discoverable
         '--noconfirm',
-        'src/main.py'
+        'launcher.py'
     ]
 
     # Remove empty icon argument if no icon exists
@@ -53,8 +54,9 @@ def build_windows():
         '--onedir',  # Create a bundle directory
         '--icon=assets/icon.ico' if os.path.exists('assets/icon.ico') else '',
         '--add-data=assets;assets',  # Include assets folder (fonts, icons) (Windows uses semicolon)
+        '--paths=.',  # Ensure src package is discoverable
         '--noconfirm',
-        'src/main.py'
+        'launcher.py'
     ]
 
     # Remove empty icon argument if no icon exists
@@ -71,8 +73,8 @@ def build_spec_file():
 block_cipher = None
 
 a = Analysis(
-    ['src/main.py'],
-    pathex=[],
+    ['launcher.py'],
+    pathex=['.'],
     binaries=[],
     datas=[
         ('assets', 'assets'),
