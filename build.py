@@ -66,6 +66,31 @@ def build_windows():
     print("\n[OK] Windows build complete! Check dist/AlbumStudio/")
 
 
+def build_installer():
+    """Build Windows installer using Inno Setup after PyInstaller."""
+    print("\n=== Building Windows Installer ===\n")
+
+    iscc = None
+    for path in [
+        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
+        r"C:\Program Files\Inno Setup 6\ISCC.exe",
+    ]:
+        if os.path.exists(path):
+            iscc = path
+            break
+
+    if iscc is None:
+        iscc = shutil.which("ISCC")
+
+    if iscc is None:
+        print("[SKIP] Inno Setup not found. Skipping installer creation.")
+        print("       Download from: https://jrsoftware.org/isinfo.php")
+        return
+
+    subprocess.run([iscc, 'installer.iss'], check=True)
+    print("\n[OK] Installer created: installer_output/AlbumStudio_Setup.exe")
+
+
 def build_spec_file():
     """Generate PyInstaller spec file for advanced configuration."""
     spec_content = '''# -*- mode: python ; coding: utf-8 -*-
@@ -177,11 +202,16 @@ def main():
         elif command == 'windows':
             clean_build_folders()
             build_windows()
+            build_installer()
+            return
+
+        elif command == 'installer':
+            build_installer()
             return
 
         else:
             print(f"Unknown command: {command}")
-            print("Usage: python build.py [clean|spec|macos|windows]")
+            print("Usage: python build.py [clean|spec|macos|windows|installer]")
             sys.exit(1)
 
     # Auto-detect platform and build
@@ -191,6 +221,7 @@ def main():
         build_macos()
     elif platform == 'win32':
         build_windows()
+        build_installer()
     else:
         print(f"Unsupported platform: {platform}")
         print("Use: python build.py [macos|windows]")
