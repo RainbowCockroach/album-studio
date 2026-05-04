@@ -25,72 +25,60 @@ class Config:
         # User config directory (for modifications, persists across updates)
         self.user_config_dir = get_user_config_dir()
 
-        self.size_groups: Dict[str, dict] = {}  # Changed from List[str] to dict
-        self.sizes: Dict[str, dict] = {}  # Deprecated, kept for backward compatibility
+        self.size_groups: Dict[str, dict] = {}
+        # Per-size metadata keyed by size ratio (e.g. "9x6"): {"cost": float, "color": str}.
+        # A "9x6" used in multiple groups shares one cost and color.
+        self.size_metadata: Dict[str, dict] = {}
         self.settings: dict = {}
         self.load_all()
 
     def load_all(self):
         """Load all configuration files."""
-        self.load_settings()  # Load settings first (colors are stored here)
-        self.load_size_groups()  # Migration may add colors to settings
-        self.load_sizes()  # Kept for backward compatibility
+        self.load_settings()  # Load first — legacy size_costs/size_colors may live here
+        self.load_size_groups()  # Migrates legacy fields out of settings into size_metadata
 
     def load_size_groups(self):
-        """Load size group definitions from size_group.json with migration support."""
-        # Check user config first, then fall back to bundled config
+        """Load groups + per-size metadata from size_group.json.
+
+        Format:
+            {"groups": {<group>: {"sizes": [{"ratio", "alias"}, ...]}},
+             "sizes":  {<ratio>: {"cost": float, "color": str}}}
+
+        Legacy formats are migrated automatically. Legacy size_costs/size_colors
+        in settings.json are pulled into size_metadata.
+        """
         user_path = os.path.join(self.user_config_dir, "size_group.json")
         bundled_path = os.path.join(self.bundled_config_dir, "size_group.json")
+        path = user_path if os.path.exists(user_path) else bundled_path
 
-        size_group_path = user_path if os.path.exists(user_path) else bundled_path
+        data = self._read_json(path) or {}
+        self.size_groups, self.size_metadata = self._migrate_size_group_data(data)
 
-        try:
-            with open(size_group_path, 'r') as f:
-                data = json.load(f)
-                # Migrate old format to new format
-                self.size_groups = self._migrate_size_group_data(data)
-        except FileNotFoundError:
-            print("Warning: size_group.json not found. Using empty size groups.")
-            self.size_groups = {}
-        except json.JSONDecodeError as e:
-            print(f"Error loading size_group.json: {e}")
-            self.size_groups = {}
-
-    def load_sizes(self):
-        """Load size definitions from sizes.json."""
-        # Check user config first, then fall back to bundled config
-        user_path = os.path.join(self.user_config_dir, "sizes.json")
-        bundled_path = os.path.join(self.bundled_config_dir, "sizes.json")
-
-        sizes_path = user_path if os.path.exists(user_path) else bundled_path
-
-        try:
-            with open(sizes_path, 'r') as f:
-                self.sizes = json.load(f)
-        except FileNotFoundError:
-            print("Warning: sizes.json not found. Using empty sizes.")
-            self.sizes = {}
-        except json.JSONDecodeError as e:
-            print(f"Error loading sizes.json: {e}")
-            self.sizes = {}
 
     def load_settings(self):
-        """Load user settings from settings.json."""
-        # Check user config first, then fall back to bundled config
-        user_path = os.path.join(self.user_config_dir, "settings.json")
+        """Load settings.json by merging bundled defaults with user overrides.
+
+        New keys added to bundled settings reach existing users on upgrade,
+        while user-modified values still take precedence.
+        """
         bundled_path = os.path.join(self.bundled_config_dir, "settings.json")
+        user_path = os.path.join(self.user_config_dir, "settings.json")
 
-        settings_path = user_path if os.path.exists(user_path) else bundled_path
+        bundled = self._read_json(bundled_path) or self._get_default_settings()
+        user = self._read_json(user_path) or {}
 
+        self.settings = {**bundled, **user}
+
+    def _read_json(self, path: str) -> Optional[dict]:
+        """Read a JSON file, returning None if missing or invalid."""
+        if not os.path.exists(path):
+            return None
         try:
-            with open(settings_path, 'r') as f:
-                self.settings = json.load(f)
-        except FileNotFoundError:
-            print("Warning: settings.json not found. Using default settings.")
-            self.settings = self._get_default_settings()
+            with open(path, 'r') as f:
+                return json.load(f)
         except json.JSONDecodeError as e:
-            print(f"Error loading settings.json: {e}")
-            self.settings = self._get_default_settings()
+            print(f"Error loading {os.path.basename(path)}: {e}")
+            return None
 
     def save_settings(self):
         """Save current settings to user config directory (persists across updates)."""
@@ -114,18 +102,12 @@ class Config:
             return [size["ratio"] for size in group_data["sizes"]]
         return []  # Empty if group doesn't exist or invalid format
 
-    def get_all_sizes(self) -> List[str]:
-        """Get list of all defined sizes."""
-        return list(self.sizes.keys())
-
     def get_size_info(self, size_name: str) -> dict:
-        """Get dimensions and ratio for a specific size (parsed from size_name)."""
+        """Get ratio for a specific size, parsed from its name (e.g. '9x6' -> 1.5)."""
         try:
-            ratio = self.parse_size_ratio(size_name)
-            return {"ratio": ratio}
+            return {"ratio": self.parse_size_ratio(size_name)}
         except ValueError:
-            # Fall back to sizes.json if it exists (backward compatibility)
-            return self.sizes.get(size_name, {})
+            return {}
 
     def get_setting(self, key: str, default=None):
         """Get a specific setting value."""
@@ -186,12 +168,13 @@ class Config:
         return size_ratio  # Default to ratio if not found
 
     def save_size_groups(self):
-        """Save size_groups to user config directory (persists across updates)."""
+        """Save groups + size_metadata to user config directory (persists across updates)."""
         size_group_path = os.path.join(self.user_config_dir, "size_group.json")
+        payload = {"groups": self.size_groups, "sizes": self.size_metadata}
         try:
             os.makedirs(self.user_config_dir, exist_ok=True)
             with open(size_group_path, 'w') as f:
-                json.dump(self.size_groups, f, indent=2)
+                json.dump(payload, f, indent=2)
         except Exception as e:
             print(f"Error saving size_group.json: {e}")
 
@@ -262,77 +245,83 @@ class Config:
 
     def get_size_color(self, size_ratio: str) -> str:
         """Get the color for a size ratio. Returns empty string if not set."""
-        colors = self.settings.get("size_colors", {})
-        return colors.get(size_ratio, "")
+        return self.size_metadata.get(size_ratio, {}).get("color", "")
 
     def set_size_color(self, size_ratio: str, color: str):
         """Set the color for a size ratio."""
-        if "size_colors" not in self.settings:
-            self.settings["size_colors"] = {}
-        self.settings["size_colors"][size_ratio] = color
+        self.size_metadata.setdefault(size_ratio, {})["color"] = color
 
     def get_all_size_colors(self) -> Dict[str, str]:
-        """Get all size colors as a dictionary."""
-        return self.settings.get("size_colors", {})
+        """Get all size colors as a {ratio: color} dictionary."""
+        return {r: m["color"] for r, m in self.size_metadata.items() if m.get("color")}
 
-    def _migrate_size_group_data(self, data: dict) -> dict:
-        """Migrate old format to new format with 'ratio' field.
-        Also migrates colors from size entries to settings (global per ratio)."""
-        migrated = {}
-        colors_to_migrate = {}  # Collect colors to migrate to settings
+    def _migrate_size_group_data(self, data: dict) -> tuple:
+        """Parse size_group.json into (groups, size_metadata).
 
-        for group_name, sizes in data.items():
-            if isinstance(sizes, list):
-                # Old format: list of size ratios (strings)
-                migrated_sizes = []
-                for size in sizes:
-                    migrated_sizes.append({"ratio": size, "alias": size})
-                    # Assign color if not already set
-                    if size not in colors_to_migrate:
-                        colors_to_migrate[size] = generate_random_color()
-                migrated[group_name] = {"sizes": migrated_sizes}
-            elif isinstance(sizes, dict) and "sizes" in sizes:
-                # Migrate from "id" to "ratio" if needed
-                migrated_sizes = []
-                for size in sizes["sizes"]:
-                    if isinstance(size, dict):
-                        # If using old "id" field, convert to "ratio"
-                        if "id" in size and "ratio" not in size:
-                            ratio = size["id"]
-                            migrated_sizes.append({
-                                "ratio": ratio,
-                                "alias": size.get("alias", ratio)
-                            })
-                        else:
-                            ratio = size["ratio"]
-                            migrated_sizes.append({
-                                "ratio": ratio,
-                                "alias": size.get("alias", ratio)
-                            })
-                        # Migrate color from size entry to global colors
-                        if "color" in size and ratio not in colors_to_migrate:
-                            colors_to_migrate[ratio] = size["color"]
-                        elif ratio not in colors_to_migrate:
-                            colors_to_migrate[ratio] = generate_random_color()
-                    else:
-                        # String format
-                        migrated_sizes.append({"ratio": size, "alias": size})
-                        if size not in colors_to_migrate:
-                            colors_to_migrate[size] = generate_random_color()
-                migrated[group_name] = {"sizes": migrated_sizes}
+        Handles three input formats:
+          1. New: {"groups": {...}, "sizes": {...}}
+          2. Legacy v2: top-level group names with "sizes" lists
+          3. Legacy v1: top-level group names mapping to plain ratio lists
+
+        Also pulls legacy size_costs/size_colors from self.settings into size_metadata
+        (one-time migration; the keys are removed from settings).
+        """
+        # Detect new format vs legacy
+        if "groups" in data or "sizes" in data:
+            raw_groups = data.get("groups", {})
+            metadata = dict(data.get("sizes", {}))
+        else:
+            raw_groups = data
+            metadata = {}
+
+        groups: Dict[str, dict] = {}
+        seen_ratios = set()
+
+        for group_name, group_data in raw_groups.items():
+            sizes_list = []
+
+            if isinstance(group_data, list):
+                # Legacy v1: ["9x6", "5x7", ...]
+                raw_sizes = [{"ratio": s, "alias": s} for s in group_data]
+            elif isinstance(group_data, dict) and "sizes" in group_data:
+                raw_sizes = group_data["sizes"]
             else:
-                # Unknown format: default to empty
-                migrated[group_name] = {"sizes": []}
+                groups[group_name] = {"sizes": []}
+                continue
 
-        # Migrate colors to settings (only if not already set)
-        if colors_to_migrate:
-            if "size_colors" not in self.settings:
-                self.settings["size_colors"] = {}
-            for ratio, color in colors_to_migrate.items():
-                if ratio not in self.settings["size_colors"]:
-                    self.settings["size_colors"][ratio] = color
+            for size in raw_sizes:
+                if isinstance(size, dict):
+                    ratio = size.get("ratio") or size.get("id")
+                    if not ratio:
+                        continue
+                    sizes_list.append({"ratio": ratio, "alias": size.get("alias", ratio)})
+                    # Pull color from legacy per-size entry
+                    if "color" in size:
+                        metadata.setdefault(ratio, {}).setdefault("color", size["color"])
+                else:
+                    ratio = size
+                    sizes_list.append({"ratio": ratio, "alias": ratio})
+                seen_ratios.add(ratio)
 
-        return migrated
+            groups[group_name] = {"sizes": sizes_list}
+
+        # Pull legacy size_costs / size_colors out of settings, then drop them
+        legacy_costs = self.settings.pop("size_costs", None)
+        legacy_colors = self.settings.pop("size_colors", None)
+        if isinstance(legacy_costs, dict):
+            for ratio, cost in legacy_costs.items():
+                metadata.setdefault(ratio, {}).setdefault("cost", cost)
+        if isinstance(legacy_colors, dict):
+            for ratio, color in legacy_colors.items():
+                metadata.setdefault(ratio, {}).setdefault("color", color)
+
+        # Auto-assign a color for any size that doesn't have one
+        for ratio in seen_ratios:
+            entry = metadata.setdefault(ratio, {})
+            if not entry.get("color"):
+                entry["color"] = generate_random_color()
+
+        return groups, metadata
 
     def get_comparison_directory(self) -> str:
         """
@@ -348,18 +337,15 @@ class Config:
 
     def get_size_cost(self, size_ratio: str) -> float:
         """Get the cost for a specific size. Returns 0 if not set."""
-        costs = self.settings.get("size_costs", {})
-        return costs.get(size_ratio, 0)
+        return self.size_metadata.get(size_ratio, {}).get("cost", 0)
 
     def set_size_cost(self, size_ratio: str, cost: float):
         """Set the cost for a specific size."""
-        if "size_costs" not in self.settings:
-            self.settings["size_costs"] = {}
-        self.settings["size_costs"][size_ratio] = cost
+        self.size_metadata.setdefault(size_ratio, {})["cost"] = cost
 
     def get_all_size_costs(self) -> Dict[str, float]:
-        """Get all size costs as a dictionary."""
-        return self.settings.get("size_costs", {})
+        """Get all size costs as a {ratio: cost} dictionary."""
+        return {r: m["cost"] for r, m in self.size_metadata.items() if "cost" in m}
 
     def get_all_unique_sizes(self) -> List[str]:
         """Get all unique size ratios from all size groups."""
@@ -381,8 +367,6 @@ class Config:
             "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
-            "size_costs": {},  # Maps size ratio (e.g., "5x7") to cost (number)
-            "size_colors": {},  # Maps size ratio (e.g., "5x7") to color (hex string)
             "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)
             # Date stamp settings
             "date_stamp_format": "YY.MM.DD",
@@ -409,8 +393,9 @@ class Config:
         try:
             # Build export data with version for future compatibility
             export_data = {
-                "version": 1,
+                "version": 2,
                 "size_groups": self.size_groups,
+                "size_metadata": self.size_metadata,
                 "settings": self.settings
             }
 
@@ -440,9 +425,13 @@ class Config:
             if version < 1:
                 return False, "Invalid config file format (missing version)."
 
-            # Import size_groups
+            # Import size_groups (+ size_metadata for v2+). _migrate handles all formats.
             if "size_groups" in import_data:
-                self.size_groups = self._migrate_size_group_data(import_data["size_groups"])
+                payload = {
+                    "groups": import_data["size_groups"],
+                    "sizes": import_data.get("size_metadata", {}),
+                }
+                self.size_groups, self.size_metadata = self._migrate_size_group_data(payload)
                 self.save_size_groups()
 
             # Import settings (merge with existing to preserve machine-specific settings)
