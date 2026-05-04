@@ -112,7 +112,7 @@ def get_config_dir() -> str:
     """
     Get the directory where config files are stored.
 
-    Config files (size_group.json, settings.json, sizes.json) are shipped with the app
+    Config files (size_group.json, settings.json) are shipped with the app
     and should remain in the app bundle. However, user modifications should be saved
     to the user data directory.
 
