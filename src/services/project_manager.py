@@ -19,6 +19,7 @@ class ProjectManager:
             data_dir: Legacy parameter for backward compatibility (overrides workspace_directory)
         """
         # Use workspace-based directory if provided, otherwise fall back to user data directory
+        self.workspace_directory = workspace_directory
         if data_dir:
             # Legacy: explicit data_dir parameter (for backward compatibility)
             self.data_dir = data_dir
@@ -51,7 +52,62 @@ class ProjectManager:
         except Exception as e:
             print(f"Error loading projects: {e}")
 
+        # Auto-register any folders dropped into the workspace that aren't tracked yet
+        self._discover_workspace_projects()
+
         return self.projects
+
+    # Folders at the workspace root that are never treated as projects
+    _RESERVED_FOLDERS = {".album-studio-settings", "_past_printed", "printed"}
+
+    def _discover_workspace_projects(self):
+        """Scan the workspace root for unregistered project folders and add them.
+
+        A subfolder qualifies as a project if it contains an 'input' subfolder.
+        Newly discovered projects get an 'output' folder created if missing and
+        are persisted to projects.json.
+        """
+        if not self.workspace_directory or not os.path.isdir(self.workspace_directory):
+            return
+
+        known_paths = {os.path.normpath(p.input_folder) for p in self.projects}
+        discovered = False
+
+        try:
+            entries = sorted(os.listdir(self.workspace_directory))
+        except OSError as e:
+            print(f"Error scanning workspace: {e}")
+            return
+
+        for name in entries:
+            if name.startswith(".") or name in self._RESERVED_FOLDERS:
+                continue
+
+            project_folder = os.path.join(self.workspace_directory, name)
+            if not os.path.isdir(project_folder):
+                continue
+
+            input_folder = os.path.join(project_folder, "input")
+            if not os.path.isdir(input_folder):
+                continue
+
+            if os.path.normpath(input_folder) in known_paths:
+                continue
+            if self.get_project_by_name(name):
+                continue
+
+            output_folder = os.path.join(project_folder, "output")
+            try:
+                os.makedirs(output_folder, exist_ok=True)
+            except OSError as e:
+                print(f"Failed to create output folder for '{name}': {e}")
+                continue
+
+            self.projects.append(Project(name, input_folder, output_folder))
+            discovered = True
+
+        if discovered:
+            self.save_projects()
 
     def save_projects(self):
         """Save all projects to projects.json."""
