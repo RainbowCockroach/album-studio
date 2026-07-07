@@ -138,3 +138,17 @@ jobs:
             artifacts/AlbumStudio-Windows.zip
           draft: false
           prerelease: false
+
+      - name: Delete older releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          KEEP_TAG: v${{ steps.version.outputs.version }}
+        run: |
+          # Keep only the release we just created; delete every other release and its tag.
+          gh release list --limit 1000 --json tagName --jq '.[].tagName' \
+            | grep -vx "$KEEP_TAG" \
+            | while read -r tag; do
+                [ -z "$tag" ] && continue
+                echo "Deleting release and tag: $tag"
+                gh release delete "$tag" --cleanup-tag --yes
+              done
