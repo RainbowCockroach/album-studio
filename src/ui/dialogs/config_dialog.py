@@ -12,6 +12,8 @@ from PyQt6.QtCore import Qt, QLocale, QThread, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QLinearGradient, QBrush
 from src.models.config import generate_random_color
 from src.services.date_stamp_service import kelvin_to_rgb
+from src.services.server_sync_service import ServerSyncService
+from src.ui.theme import STYLE_PULL_BTN
 
 
 class TemperatureGradientPreview(QWidget):
@@ -104,6 +106,23 @@ class ImportPrintedWorker(QThread):
         self.import_complete.emit(stats)
 
 
+class ServerTestWorker(QThread):
+    """Worker thread to test the photo server connection without blocking the UI."""
+
+    finished_signal = pyqtSignal(bool, str)  # (ok, message)
+
+    def __init__(self, base_url: str, token: str):
+        super().__init__()
+        self.base_url = base_url
+        self.token = token
+
+    def run(self):
+        # test_connection never writes the ledger, so a throwaway path is fine.
+        service = ServerSyncService(self.base_url, self.token, ledger_path="")
+        ok, message = service.test_connection()
+        self.finished_signal.emit(ok, message)
+
+
 class ConfigDialog(QDialog):
     """Configuration window for size groups and their sizes."""
 
@@ -166,6 +185,10 @@ class ConfigDialog(QDialog):
         date_stamp_tab = self.create_date_stamp_tab()
         tab_widget.addTab(date_stamp_tab, "Date Stamp")
 
+        # Tab 6: Server (Pull from server)
+        server_tab = self.create_server_tab()
+        tab_widget.addTab(server_tab, "Server")
+
         main_layout.addWidget(tab_widget)
 
         # Bottom buttons
@@ -196,6 +219,70 @@ class ConfigDialog(QDialog):
 
         # Load initial data
         self.load_size_groups()
+
+    def create_server_tab(self):
+        """Create the photo-server (Pull from server) settings tab."""
+        tab = QWidget()
+        layout = QVBoxLayout()
+
+        info = QLabel(
+            "Pull new photos uploaded from your phone to the home server.\n"
+            "Photos are auto-organized into month-named projects (e.g. 2026-06)."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        form = QFormLayout()
+
+        self.server_url_input = QLineEdit()
+        self.server_url_input.setText(self.config.get_setting("server_url", "") or "")
+        self.server_url_input.setPlaceholderText("https://photos.example.com")
+        form.addRow("Server URL:", self.server_url_input)
+
+        self.server_token_input = QLineEdit()
+        self.server_token_input.setText(self.config.get_setting("server_token", "") or "")
+        self.server_token_input.setPlaceholderText("Shared bearer token")
+        self.server_token_input.setEchoMode(QLineEdit.EchoMode.Password)
+        form.addRow("Token:", self.server_token_input)
+
+        layout.addLayout(form)
+
+        # Test connection row
+        test_row = QHBoxLayout()
+        self.test_connection_btn = QPushButton("Test Connection")
+        self.test_connection_btn.setStyleSheet(STYLE_PULL_BTN)
+        self.test_connection_btn.clicked.connect(self.on_test_connection_clicked)
+        test_row.addWidget(self.test_connection_btn)
+
+        self.test_connection_label = QLabel("")
+        self.test_connection_label.setWordWrap(True)
+        test_row.addWidget(self.test_connection_label, stretch=1)
+        layout.addLayout(test_row)
+
+        layout.addStretch()
+        tab.setLayout(layout)
+        return tab
+
+    def on_test_connection_clicked(self):
+        """Test the server connection using the values currently in the form."""
+        base_url = self.server_url_input.text().strip()
+        token = self.server_token_input.text().strip()
+
+        if not base_url:
+            self.test_connection_label.setText("Enter a server URL first.")
+            return
+
+        self.test_connection_btn.setEnabled(False)
+        self.test_connection_label.setText("Testing…")
+
+        self._server_test_worker = ServerTestWorker(base_url, token)
+        self._server_test_worker.finished_signal.connect(self._on_test_connection_finished)
+        self._server_test_worker.start()
+
+    def _on_test_connection_finished(self, ok: bool, message: str):
+        self.test_connection_btn.setEnabled(True)
+        prefix = "✓ " if ok else "✗ "
+        self.test_connection_label.setText(prefix + message)
 
     def create_directory_tab(self):
         """Create directory settings tab."""
@@ -1058,6 +1145,10 @@ class ConfigDialog(QDialog):
         self.config.set_setting("date_stamp_temp_core", self.core_temp_spinbox.value())
         self.config.set_setting("date_stamp_glow_intensity", self.glow_spinbox.value())
         self.config.set_setting("date_stamp_opacity", self.opacity_spinbox.value())
+
+        # Save server sync settings
+        self.config.set_setting("server_url", self.server_url_input.text().strip())
+        self.config.set_setting("server_token", self.server_token_input.text().strip())
 
         self.config.save_settings()
 

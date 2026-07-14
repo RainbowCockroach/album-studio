@@ -106,7 +106,9 @@ class ToolbarBottom(QWidget):
         """Enable or disable all controls."""
         self.size_group_combo.setEnabled(enabled)
         self.size_combo.setEnabled(enabled)
-        self.config_btn.setEnabled(enabled)
+        # Config button is always available — configuring size groups/sizes
+        # doesn't require a loaded project.
+        self.config_btn.setEnabled(True)
         self.crop_btn.setEnabled(enabled)
         self.cancel_btn.setEnabled(enabled)
         self.save_btn.setEnabled(enabled)

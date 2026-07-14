@@ -376,7 +376,10 @@ class Config:
             "date_stamp_temp_outer": 1800,  # Outer glow temperature in Kelvin (warmer, 1000-4000)
             "date_stamp_temp_core": 6500,  # Core text temperature in Kelvin (hotter, 4000-10000)
             "date_stamp_glow_intensity": 80,  # 0-100
-            "date_stamp_opacity": 90  # 0-100
+            "date_stamp_opacity": 90,  # 0-100
+            # Server sync (Pull from server) — see docs/SERVER_SYNC.md
+            "server_url": "",
+            "server_token": ""
         }
 
     # ========== Config Export/Import ==========

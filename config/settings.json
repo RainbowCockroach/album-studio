@@ -14,5 +14,7 @@
     ".JPEG",
     ".PNG",
     ".HEIC"
-  ]
+  ],
+  "server_url": "",
+  "server_token": ""
 }

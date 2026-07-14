@@ -101,6 +101,11 @@ CANCEL_BTN_BG = '#e0c860'
 CANCEL_BTN_PRESSED = '#c8b050'
 CANCEL_BTN_HOVER = '#e8d070'
 
+PULL_BTN_BG = '#b0c4d8'
+PULL_BTN_TEXT = '#1a3a5a'
+PULL_BTN_PRESSED = '#98acc0'
+PULL_BTN_HOVER = '#c0d4e8'
+
 
 # =====================================================================
 # Helper Functions
@@ -159,6 +164,9 @@ STYLE_UPDATE_BTN = retro_button_style(
 STYLE_CANCEL_BTN = retro_button_style(
     CANCEL_BTN_BG, pressed=CANCEL_BTN_PRESSED, hover=CANCEL_BTN_HOVER,
     extra="QPushButton { font-weight: bold; }")
+
+STYLE_PULL_BTN = retro_button_style(
+    PULL_BTN_BG, PULL_BTN_TEXT, PULL_BTN_PRESSED, PULL_BTN_HOVER)
 
 STYLE_TOTAL_COST = "font-weight: bold; padding: 0 10px;"
 STYLE_VERSION_LABEL = f"color: {TEXT_VERSION}; font-size: 11px; padding: 0 5px;"

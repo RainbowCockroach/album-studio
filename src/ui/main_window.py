@@ -13,8 +13,12 @@ from ..services.image_processor import ImageProcessor
 from ..services.crop_service import CropService, CropWorker
 from ..services.image_similarity_service import ImageSimilarityService
 from ..services.update_service import UpdateService, ReleaseInfo
-from ..utils.paths import migrate_old_data
-from typing import Optional
+from ..services.server_sync_service import (
+    ServerSyncService, ServerSyncError, RemotePhoto)
+from ..utils.paths import migrate_old_data, get_user_data_dir
+from pathlib import Path
+from typing import List, Optional, Tuple
+import os
 
 
 class UpdateCheckWorker(QThread):
@@ -59,6 +63,86 @@ class UpdateDownloadWorker(QThread):
             self.error.emit(str(e))
 
 
+class PullListWorker(QThread):
+    """Background worker to fetch the list of new (un-pulled) photos."""
+    finished_signal = pyqtSignal(object)  # Emits List[RemotePhoto]
+    error = pyqtSignal(str)
+
+    def __init__(self, service: ServerSyncService):
+        super().__init__()
+        self.service = service
+
+    def run(self):
+        try:
+            photos = self.service.get_new_photos_auto()
+            self.finished_signal.emit(photos)
+        except ServerSyncError as e:
+            self.error.emit(str(e))
+        except Exception as e:  # defensive: never leak a raw stack trace to the UI
+            self.error.emit(f"Unexpected error listing photos: {e}")
+
+
+class PullDownloadWorker(QThread):
+    """Background worker that downloads photos into their month projects.
+
+    `jobs` is a list of (RemotePhoto, dest_dir, project). The ledger is updated
+    by the service after each successful file, so cancelling mid-pull never
+    re-downloads what already landed. `advance_month` is written as the ledger's
+    last_pull_month at the end (even on cancel) to bound the next listing.
+    """
+    progress_updated = pyqtSignal(int, int, str)  # current, total, filename
+    finished_signal = pyqtSignal(dict)  # {downloaded, failed, projects, errors}
+
+    def __init__(self, service: ServerSyncService,
+                 jobs: List[Tuple[RemotePhoto, str, str]],
+                 advance_month: Optional[str]):
+        super().__init__()
+        self.service = service
+        self.jobs = jobs
+        self.advance_month = advance_month
+        self._cancelled = False
+
+    def cancel(self):
+        self._cancelled = True
+
+    def run(self):
+        downloaded = 0
+        failed = 0
+        projects = set()
+        errors: List[str] = []
+        total = len(self.jobs)
+
+        for i, (photo, dest_dir, project) in enumerate(self.jobs):
+            if self._cancelled:
+                break
+            name = photo.original_name or photo.hash
+            self.progress_updated.emit(i, total, name)
+            try:
+                self.service.download(photo, Path(dest_dir), project)
+                downloaded += 1
+                projects.add(project)
+            except ServerSyncError as e:
+                failed += 1
+                errors.append(str(e))
+            except Exception as e:  # defensive — keep the pull going
+                failed += 1
+                errors.append(str(e))
+
+        # Advance the ledger's last-pull marker so the next pull lists less.
+        if self.advance_month:
+            try:
+                self.service.set_last_pull_month(self.advance_month)
+            except ServerSyncError:
+                pass
+
+        self.finished_signal.emit({
+            "downloaded": downloaded,
+            "failed": failed,
+            "projects": sorted(projects),
+            "errors": errors,
+        })
+
+
 class MainWindow(QMainWindow):
     """Main application window."""
 
@@ -83,6 +167,8 @@ class MainWindow(QMainWindow):
         self._pending_release: Optional[ReleaseInfo] = None
         self._update_check_worker: Optional[UpdateCheckWorker] = None
         self._update_download_worker: Optional[UpdateDownloadWorker] = None
+        self._pull_list_worker: Optional[PullListWorker] = None
+        self._pull_download_worker: Optional[PullDownloadWorker] = None
 
         self.init_ui()
         self.load_projects()
@@ -149,6 +235,7 @@ class MainWindow(QMainWindow):
         self.project_toolbar.select_all_toggled.connect(self.on_select_all_requested)
         self.project_toolbar.update_requested.connect(self.on_update_requested)
         self.project_toolbar.refresh_requested.connect(self.on_refresh_requested)
+        self.project_toolbar.pull_from_server_requested.connect(self.on_pull_from_server_requested)
 
         # Tag panel
         self.tag_panel.crop_requested.connect(self.on_crop_requested)
@@ -802,6 +889,146 @@ class MainWindow(QMainWindow):
 
         # Start the worker
         crop_worker.start()
+
+    # ==================== Pull from Server ====================
+
+    def on_pull_from_server_requested(self):
+        """Handle 'Pull from Server' — fetch the new-photo list on a worker."""
+        server_url = (self.config.get_setting("server_url", "") or "").strip()
+        server_token = (self.config.get_setting("server_token", "") or "").strip()
+        if not server_url or not server_token:
+            QMessageBox.information(
+                self, "Server Not Configured",
+                "Set the server URL and token in Settings → Server before pulling."
+            )
+            return
+
+        workspace = (self.config.get_setting("workspace_directory", "") or "").strip()
+        if not workspace or not os.path.isdir(workspace):
+            QMessageBox.warning(
+                self, "Workspace Not Set",
+                "Configure a valid workspace directory in Settings → Directory first."
+            )
+            return
+
+        ledger_path = os.path.join(get_user_data_dir(), "pulled_photos.json")
+        service = ServerSyncService(server_url, server_token, ledger_path)
+
+        # Indeterminate busy indicator while we list new photos.
+        self._pull_list_dialog = QProgressDialog(
+            "Checking server for new photos…", "Cancel", 0, 0, self)
+        self._pull_list_dialog.setWindowTitle("Pull from Server")
+        self._pull_list_dialog.setWindowModality(Qt.WindowModality.WindowModal)
+        self._pull_list_dialog.setMinimumDuration(0)
+        self._pull_list_cancelled = False
+        self._pull_list_dialog.canceled.connect(self._on_pull_list_cancelled)
+
+        worker = PullListWorker(service)
+        self._pull_list_worker = worker
+        worker.finished_signal.connect(
+            lambda photos: self._on_pull_list_ready(service, workspace, photos))
+        worker.error.connect(self._on_pull_error)
+        worker.start()
+
+    def _on_pull_list_cancelled(self):
+        self._pull_list_cancelled = True
+
+    def _on_pull_error(self, message: str):
+        """Show a user-readable error from the listing worker."""
+        dialog = getattr(self, "_pull_list_dialog", None)
+        if dialog is not None:
+            dialog.close()
+        if getattr(self, "_pull_list_cancelled", False):
+            return
+        QMessageBox.critical(self, "Pull Failed", message)
+
+    def _on_pull_list_ready(self, service: ServerSyncService, workspace: str,
+                            photos: List[RemotePhoto]):
+        """Confirm the breakdown, then start downloading on a worker."""
+        dialog = getattr(self, "_pull_list_dialog", None)
+        if dialog is not None:
+            dialog.close()
+        if getattr(self, "_pull_list_cancelled", False):
+            return
+
+        if not photos:
+            QMessageBox.information(self, "Up to Date", "No new photos on the server.")
+            return
+
+        groups = service.group_by_month(photos)
+        total_bytes = sum(p.size for p in photos)
+        breakdown = ", ".join(f"{month} → {len(groups[month])}" for month in sorted(groups))
+        msg = (f"{len(photos)} new photos ({self._format_size(total_bytes)}):\n"
+               f"{breakdown}\n\nDownload?")
+        reply = QMessageBox.question(
+            self, "Pull from Server", msg,
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        # Build download jobs; one dest folder per month project.
+        jobs: List[Tuple[RemotePhoto, str, str]] = []
+        for month in sorted(groups):
+            dest_dir = os.path.join(workspace, month, "input")
+            for photo in groups[month]:
+                jobs.append((photo, dest_dir, month))
+        advance_month = min(p.uploaded_at.strftime("%Y-%m") for p in photos)
+
+        progress = QProgressDialog("Preparing download…", "Cancel", 0, len(jobs), self)
+        progress.setWindowTitle("Downloading Photos")
+        progress.setWindowModality(Qt.WindowModality.WindowModal)
+        progress.setMinimumDuration(0)
+        progress.setValue(0)
+
+        dl_worker = PullDownloadWorker(service, jobs, advance_month)
+        self._pull_download_worker = dl_worker
+
+        def on_progress(current, total, filename):
+            progress.setValue(current)
+            progress.setLabelText(f"Downloading {current + 1}/{total}: {filename}")
+
+        def on_finished(result):
+            progress.close()
+            QApplication.beep()
+            self._refresh_projects_after_pull()
+
+            n = result["downloaded"]
+            m = len(result["projects"])
+            k = result["failed"]
+            text = f"Downloaded {n} photos into {m} project(s)."
+            if k:
+                text += f"\n{k} failed."
+                if result["errors"]:
+                    text += "\nFirst error: " + result["errors"][0]
+            QMessageBox.information(self, "Pull Complete", text)
+            dl_worker.deleteLater()
+
+        dl_worker.progress_updated.connect(on_progress)
+        dl_worker.finished_signal.connect(on_finished)
+        progress.canceled.connect(dl_worker.cancel)
+        dl_worker.start()
+
+    def _refresh_projects_after_pull(self):
+        """Reload projects (auto-discovers new month folders) and refresh the UI."""
+        current = self.project_toolbar.get_current_project()
+        self.project_manager.load_projects()
+        names = self.project_manager.get_project_names()
+        self.project_toolbar.set_projects(names)
+
+        target = current if (current and current in names) else (names[0] if names else None)
+        if target:
+            self.project_toolbar.set_current_project(target)
+            self.load_project(target)
+
+    @staticmethod
+    def _format_size(num_bytes: int) -> str:
+        """Human-readable byte size, e.g. 210 MB."""
+        size = float(num_bytes)
+        for unit in ("B", "KB", "MB", "GB"):
+            if size < 1024 or unit == "GB":
+                return f"{int(size)} {unit}" if unit == "B" else f"{size:.0f} {unit}"
+            size /= 1024
+        return f"{int(num_bytes)} B"
 
     def on_config_requested(self):
         """Handle config button click - open configuration dialog."""
