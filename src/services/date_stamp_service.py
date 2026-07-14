@@ -192,8 +192,10 @@ class DateStampService:
         Returns:
             Formatted date string
         """
-        # Replace tokens with actual values
+        # Replace tokens with actual values. YYYY must go first, or its two
+        # YY pairs each expand to the 2-digit year (2023 -> "2323").
         result = format_str
+        result = result.replace("YYYY", date.strftime("%Y"))
         result = result.replace("YY", date.strftime("%y"))
         result = result.replace("MM", date.strftime("%m"))
         result = result.replace("DD", date.strftime("%d"))

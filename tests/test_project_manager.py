@@ -51,14 +51,9 @@ class TestCrud:
 
 
 class TestDiscovery:
-    # NOTE: load_projects() returns early when projects.json is absent, so
-    # discovery only runs once that file exists. We seed it via save_projects()
-    # to exercise the discovery path — mirroring a workspace already in use.
-
     def test_discovers_dropped_project_folder(self, tmp_path):
         ws = workspace(tmp_path)
         pm = ProjectManager(workspace_directory=ws)
-        pm.save_projects()  # create projects.json so load() proceeds to discovery
 
         # a month folder with an input/ subfolder, never registered
         os.makedirs(os.path.join(ws, "2026-07", "input"))
@@ -75,7 +70,6 @@ class TestDiscovery:
         os.makedirs(os.path.join(ws, ".hidden", "input"))
 
         pm = ProjectManager(workspace_directory=ws)
-        pm.save_projects()
         pm.load_projects()
         assert pm.get_project_names() == []
 
@@ -83,7 +77,6 @@ class TestDiscovery:
         ws = workspace(tmp_path)
         os.makedirs(os.path.join(ws, "random", "notinput"))
         pm = ProjectManager(workspace_directory=ws)
-        pm.save_projects()
         pm.load_projects()
         assert pm.get_project_names() == []
 

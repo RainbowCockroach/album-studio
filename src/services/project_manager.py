@@ -37,20 +37,18 @@ class ProjectManager:
         """Load all projects from projects.json."""
         self.projects.clear()
 
-        if not os.path.exists(self.projects_file):
-            return self.projects
+        if os.path.exists(self.projects_file):
+            try:
+                with open(self.projects_file, 'r') as f:
+                    data = json.load(f)
+                    for project_data in data.get("projects", []):
+                        project = Project.from_dict(project_data)
+                        self.projects.append(project)
 
-        try:
-            with open(self.projects_file, 'r') as f:
-                data = json.load(f)
-                for project_data in data.get("projects", []):
-                    project = Project.from_dict(project_data)
-                    self.projects.append(project)
-
-        except json.JSONDecodeError as e:
-            print(f"Error loading projects.json: {e}")
-        except Exception as e:
-            print(f"Error loading projects: {e}")
+            except json.JSONDecodeError as e:
+                print(f"Error loading projects.json: {e}")
+            except Exception as e:
+                print(f"Error loading projects: {e}")
 
         # Auto-register any folders dropped into the workspace that aren't tracked yet
         self._discover_workspace_projects()

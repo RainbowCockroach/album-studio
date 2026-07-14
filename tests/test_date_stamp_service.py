@@ -56,6 +56,11 @@ class TestFormatDate:
         d = datetime(2023, 1, 5)
         assert svc._format_date(d, "DD.MM.'YY") == "05.01.'23"
 
+    def test_yyyy(self):
+        svc = service()
+        d = datetime(2023, 12, 25)
+        assert svc._format_date(d, "YYYY.MM.DD") == "2023.12.25"
+
 
 class TestParsePrintHeight:
     @pytest.mark.parametrize("tag,expected", [

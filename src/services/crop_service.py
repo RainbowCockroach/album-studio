@@ -114,9 +114,6 @@ class CropService:
             # Open image first to get its dimensions
             img = Image.open(image_path)
 
-            # Track original format to determine if we can use subsampling='keep'
-            original_format = img.format
-
             # Convert to RGB if necessary (smartcrop requires RGB)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
@@ -171,16 +168,11 @@ class CropService:
             os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
             # Save the cropped image with quality preservation
-            # Only use subsampling='keep' if original was JPEG
             save_params = {
                 'format': 'JPEG',
                 'quality': 95,
                 'optimize': True
             }
-
-            # Only add subsampling='keep' for JPEG sources
-            if original_format == 'JPEG':
-                save_params['subsampling'] = 'keep'
 
             final_img.save(output_path, **save_params)
 

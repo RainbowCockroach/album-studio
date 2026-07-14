@@ -5,8 +5,6 @@ deterministic manual crop box are covered — smartcrop's saliency search is
 non-deterministic and out of scope for unit tests.
 """
 
-import pytest
-
 from src.services.crop_service import CropService
 
 
@@ -55,7 +53,6 @@ class TestCropImageManualBox:
         from PIL import Image
 
         svc = make_service()
-        # PNG source: avoids the JPEG 'keep' subsampling path (see xfail below)
         src = make_image(size=(1000, 800), color=(120, 60, 200), fmt="PNG")
         out = tmp_path / "out" / "9x6" / "result.jpg"
 
@@ -69,14 +66,9 @@ class TestCropImageManualBox:
         w, h = Image.open(str(out)).size
         assert (w, h) == (1000, 666)
 
-    @pytest.mark.xfail(
-        reason="KNOWN BUG: crop_image sets subsampling='keep' for JPEG sources, "
-               "but the resized output image is not a JPEG-loaded object, so "
-               "PIL raises and crop_image swallows it and returns False. Real "
-               "inputs are HEIC, so this path is rarely hit in production.",
-        strict=True,
-    )
-    def test_jpeg_source_crop_currently_fails(self, tmp_path, make_image):
+    def test_jpeg_source_crop(self, tmp_path, make_image):
+        from PIL import Image
+
         svc = make_service()
         src = make_image(size=(1000, 800), color=(120, 60, 200), fmt="JPEG")
         out = tmp_path / "out" / "9x6" / "result.jpg"
@@ -84,4 +76,7 @@ class TestCropImageManualBox:
             src, "9x6", str(out),
             manual_crop_box={"x": 0, "y": 0, "width": 600, "height": 400},
         )
-        assert ok is True  # xfails today; flips to xpass when the bug is fixed
+        assert ok is True
+        assert out.exists()
+        w, h = Image.open(str(out)).size
+        assert (w, h) == (1000, 666)

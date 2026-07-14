@@ -32,10 +32,7 @@ python3 -m pytest tests/test_config.py # single file
 
 **Tests** live in `tests/` and cover `models/` and `services/` only (config
 parsing/migration, server-sync ledger + SHA-256 verify, project CRUD/discovery,
-crop geometry, date-stamp helpers). UI widgets are intentionally untested. One
-`xfail` in `tests/test_crop_service.py` pins a known bug: `crop_image` passes
-`subsampling='keep'` for JPEG sources, which PIL rejects on the resized output —
-harmless in practice because real inputs are HEIC.
+crop geometry, date-stamp helpers). UI widgets are intentionally untested.
 
 **Always lint modified files when finishing a task:** `pyright src/path/to/modified_file.py`
 
