@@ -105,8 +105,15 @@ class TestDmg:
 
     @pytest.fixture
     def fake_app(self, tmp_path, build, monkeypatch):
-        """A stand-in .app so build_dmg has something to package."""
+        """A stand-in .app so build_dmg has something to package.
+
+        Also pins `ismount` to False. Without it these tests read the real
+        machine: a DMG left mounted from testing makes build_dmg try to detach
+        it for real and hands every stub an unexpected `hdiutil detach`. Tests
+        that want the stale-volume path opt back in explicitly.
+        """
         monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(build.os.path, "ismount", lambda _p: False)
         app = tmp_path / "dist" / "AlbumStudio.app"
         (app / "Contents" / "MacOS").mkdir(parents=True)
         (app / "Contents" / "MacOS" / "AlbumStudio").write_text("#!/bin/sh\n")
