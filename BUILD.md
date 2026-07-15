@@ -62,37 +62,41 @@ pip install pyinstaller
 
 2. **Build the application:**
 ```bash
+python3 build.py macos
+```
+
+   Or by hand. Note the entry point is `run.py`, **not** `src/main.py` — see
+   `run.py`; pointing PyInstaller at `src/main.py` yields a bundle that builds
+   cleanly and crashes on launch:
+
+```bash
 pyinstaller \
     --name="AlbumStudio" \
     --windowed \
     --onedir \
+    --icon=assets/icon.icns \
     --add-data="config:config" \
     --noconfirm \
-    src/main.py
+    run.py
 ```
 
 3. **Output:**
-   - Application bundle: `dist/AlbumStudio.app`
+   - Application bundle: `dist/AlbumStudio.app` (~554 MB; torch is 361 MB of it)
    - Supporting files: Included in the .app bundle
 
-4. **Create DMG (Optional):**
+4. **Create DMG:**
 ```bash
-# Simple DMG
-hdiutil create -volname AlbumStudio -srcfolder dist/AlbumStudio.app -ov -format UDZO dist/AlbumStudio.dmg
-
-# Or use create-dmg for prettier DMG with background
-brew install create-dmg
-create-dmg \
-  --volname "Album Studio" \
-  --window-pos 200 120 \
-  --window-size 600 400 \
-  --icon-size 100 \
-  --icon "AlbumStudio.app" 175 120 \
-  --hide-extension "AlbumStudio.app" \
-  --app-drop-link 425 120 \
-  "dist/AlbumStudio.dmg" \
-  "dist/AlbumStudio.app"
+python3 build.py dmg
 ```
+
+   The disk image needs an `/Applications` symlink beside the app, or it opens
+   as a lone icon in an empty window with nowhere to drag it. `build.py dmg`
+   uses `create-dmg` when installed (`brew install create-dmg`) for positioned
+   icons, and otherwise stages the symlink itself and calls `hdiutil`. Both give
+   the standard drag-to-install window.
+
+   A bare `hdiutil create -srcfolder dist/AlbumStudio.app ...` does **not** — it
+   is the empty-window case above.
 
 5. **Code Signing (Optional but recommended):**
 ```bash
@@ -119,9 +123,10 @@ pyinstaller ^
     --name=AlbumStudio ^
     --windowed ^
     --onedir ^
+    --icon=assets/icon.ico ^
     --add-data=config;config ^
     --noconfirm ^
-    src\main.py
+    run.py
 ```
 
 3. **Output:**
@@ -185,30 +190,38 @@ pyinstaller AlbumStudio.spec
 
 ## Build Configuration
 
-### Adding an Application Icon
+### Replacing the Application Icon
 
-1. **Create icons:**
-   - macOS: `assets/icon.icns` (512x512 PNG converted to ICNS)
-   - Windows: `assets/icon.ico` (256x256 PNG converted to ICO)
+The icons are committed, and both builders **require** them — a missing file
+aborts the build rather than letting PyInstaller substitute its own Python-logo
+icon, which is how the wrong icon shipped before.
 
-2. **Convert icons:**
+| File | Used for |
+|---|---|
+| `assets/icon.icns` | the macOS `.app` (Finder, Dock) |
+| `assets/icon.ico` | the Windows `.exe` |
+| `assets/app_icon.png` | Qt's runtime window icon (`main.py`) |
 
-   **For macOS (.icns):**
-   ```bash
-   mkdir MyIcon.iconset
-   # Create multiple sizes (16x16 to 512x512)
-   sips -z 512 512 icon.png --out MyIcon.iconset/icon_512x512.png
-   # ... more sizes ...
-   iconutil -c icns MyIcon.iconset
-   ```
+To swap in a new picture, regenerate all three from one square source. `.icns`
+needs every size from 16 to 1024 (`@2x` included) or macOS upscales a small one
+and it looks soft in the Dock:
 
-   **For Windows (.ico):**
-   Use online converter or ImageMagick:
-   ```bash
-   convert icon.png -define icon:auto-resize=256,128,64,48,32,16 icon.ico
-   ```
+```python
+from PIL import Image
+base = Image.open("new.png").convert("RGBA").resize((1024, 1024), Image.Resampling.LANCZOS)
+# icon_16x16.png / icon_16x16@2x.png / ... / icon_512x512@2x.png into AlbumStudio.iconset/
+base.save("assets/icon.ico", sizes=[(256,256),(128,128),(64,64),(48,48),(32,32),(16,16)])
+base.resize((512, 512)).save("assets/app_icon.png")
+```
+```bash
+iconutil -c icns AlbumStudio.iconset -o assets/icon.icns
+```
 
-3. **Update build command to include icon**
+Finder aggressively caches icons: if a rebuilt app still shows the old one, it
+is the cache, not the build (`plutil -extract CFBundleIconFile raw
+dist/AlbumStudio.app/Contents/Info.plist` tells you the truth).
+
+Guarded by `tests/test_build_packaging.py::TestAppIcon`.
 
 ### Including Data Files
 

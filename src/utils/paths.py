@@ -36,6 +36,26 @@ def get_user_data_dir() -> str:
     return str(app_data_dir)
 
 
+def _bundled_resource_dir() -> str:
+    """Root of the read-only data files shipped with the app (config/, assets/).
+
+    Frozen, this is `sys._MEIPASS` — where PyInstaller unpacks `--add-data`.
+    It is NOT the executable's own directory: inside a macOS .app, PyInstaller
+    puts data in `Contents/Frameworks` while `Contents/MacOS` holds only the
+    binary, so `dirname(sys.executable)` finds nothing. Nothing raises when it
+    misses — the app just silently falls back to defaults and starts with no
+    size groups (BUG-6).
+
+    Running from source, this is the repo root.
+    """
+    if getattr(sys, 'frozen', False):
+        # Fall back to the executable's directory for any frozen mode that
+        # does not set _MEIPASS.
+        return getattr(sys, '_MEIPASS', os.path.dirname(sys.executable))
+
+    return os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
 def get_app_bundle_dir() -> str:
     """
     Get the directory where the application is installed.
@@ -119,15 +139,7 @@ def get_config_dir() -> str:
     Returns:
         Path to config directory (inside app bundle)
     """
-    if getattr(sys, 'frozen', False):
-        # Running as PyInstaller bundle - config bundled with app
-        return os.path.join(os.path.dirname(sys.executable), "config")
-    else:
-        # Running from source
-        return os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "config"
-        )
+    return os.path.join(_bundled_resource_dir(), "config")
 
 
 def get_user_config_dir() -> str:
@@ -154,12 +166,4 @@ def get_assets_dir() -> str:
     Returns:
         Path to assets directory
     """
-    if getattr(sys, 'frozen', False):
-        # Running as PyInstaller bundle
-        return os.path.join(os.path.dirname(sys.executable), "assets")
-    else:
-        # Running from source
-        return os.path.join(
-            os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-            "assets"
-        )
+    return os.path.join(_bundled_resource_dir(), "assets")
