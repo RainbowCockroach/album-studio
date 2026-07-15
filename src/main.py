@@ -1,8 +1,10 @@
+import os
 import sys
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QIcon
 from .ui.main_window import MainWindow
 from .ui.theme import GLOBAL_STYLESHEET
+from .utils.paths import get_assets_dir
 
 
 def main():
@@ -10,8 +12,10 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Album Studio")
 
-    # Set the application icon
-    app.setWindowIcon(QIcon("assets/app_icon.png"))
+    # Set the application icon. Must be an absolute path: a relative one
+    # resolves against the working directory, which is '/' when launched from
+    # Finder, and QIcon reports no error for a file it cannot find.
+    app.setWindowIcon(QIcon(os.path.join(get_assets_dir(), "app_icon.png")))
 
     # Apply global retro theme
     app.setStyleSheet(GLOBAL_STYLESHEET)

@@ -369,9 +369,69 @@ when the bug is present.
 
 ## Build Notes
 
-PyInstaller bundles `config/` and `assets/` (including DSEG7 font for date stamps). The `config/` folder must exist in the repo root before building — it is not auto-generated.
+`python3 build.py macos` builds the `.app`; `python3 build.py dmg` wraps it into
+the installer disk image. Everything below is load-bearing — each line is a bug
+that shipped, and every one of them was **silent**: the build exited 0 and the
+damage appeared only in the packaged app. Nothing here is caught by `pytest` or
+by running from source, so treat a green suite as no evidence at all about the
+bundle.
 
-macOS uses `:` separator in `--add-data`; Windows uses `;`.
+### The entry point is `run.py`, never `src/main.py` — CRITICAL
+
+`src/main.py` uses relative imports (`from .ui...`), which is why running from
+source needs module form (`python3 -m src.main`). PyInstaller executes its entry
+script as `__main__`, with no parent package, so pointing it at `src/main.py`
+breaks **twice**:
+
+- the frozen app dies on launch with `ImportError` at line 1, and
+- PyInstaller's analysis cannot follow those imports either, so it silently
+  bundles **none of `src/`** — and no torch, no numpy.
+
+The second is what makes this vicious: the build succeeds, and the only tell is
+weight. A correct build is **~557 MB** (torch is most of it); the broken one was
+70 MB and dead on arrival. `run.py` is a shim that imports `src.main`, keeping
+`src` a real package for both the analysis and the runtime.
+Guarded by `tests/test_build_entry_point.py`.
+
+### Bundled data is at `sys._MEIPASS`, not next to the executable — CRITICAL
+
+PyInstaller unpacks `--add-data` into `sys._MEIPASS`. Inside a `.app` that is
+`Contents/Frameworks`; `Contents/MacOS` holds **only** the binary, so anything
+derived from `dirname(sys.executable)` finds nothing. `_bundled_resource_dir()`
+in `src/utils/paths.py` is the single place that decides this — read bundled
+files through `get_config_dir()` / `get_assets_dir()`, never by hand.
+
+It fails quietly: `Config._read_json()` returns `None` for a missing file, so a
+packaged app silently fell back to defaults and started with **no size groups**.
+(`get_app_bundle_dir()` deliberately still uses the executable's directory — it
+is migration-only and wants exactly that.)
+Guarded by `tests/test_frozen_resources.py`.
+
+### Both `config/` and `assets/` must be passed to `--add-data`
+
+`config/` carries the shipped settings + size-group templates; `assets/` carries
+the DSEG7 font and `app_icon.png`. Neither is auto-generated, and both must exist
+in the repo root before building. A missing font does not raise —
+`DateStampService` falls back to Pillow's default bitmap font and the stamp draws
+in the wrong typeface. macOS uses a `:` separator; Windows uses `;`.
+Guarded by `tests/test_build_packaging.py::TestBundledData`.
+
+### The icon is required, and a DMG needs an `/Applications` symlink
+
+`build.py` **aborts** if `assets/icon.icns` (or `.ico`) is missing rather than
+dropping the flag, because PyInstaller substitutes its own Python-logo icon and
+still reports success — which is how the wrong icon shipped for months. See
+`BUILD.md` for regenerating the three icon files from one source image.
+
+The drag-to-install window is not something macOS provides: the image must
+contain an `/Applications` symlink beside the app, or it opens as a lone icon in
+an empty window with nowhere to drop it. `build.py dmg` stages that symlink (or
+delegates to `create-dmg` when installed). A bare
+`hdiutil create -srcfolder dist/AlbumStudio.app` does **not**.
+Guarded by `tests/test_build_packaging.py`.
+
+The app is unsigned and un-notarized, so a downloaded DMG needs right-click →
+**Open** on first launch to get past Gatekeeper.
 
 ## Server Sync Feature (IMPLEMENTED — full spec in `docs/SERVER_SYNC.md`)
 

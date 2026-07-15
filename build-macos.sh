@@ -12,18 +12,21 @@ fi
 # Clean previous builds
 rm -rf build dist
 
-# Build the application
+# Build the application.
+# Entry point is run.py, not src/main.py — see run.py for why.
 pyinstaller \
     --name="AlbumStudio" \
     --windowed \
     --onedir \
+    --icon=assets/icon.icns \
     --add-data="config:config" \
+    --add-data="assets:assets" \
     --noconfirm \
-    src/main.py
+    run.py
 
 echo ""
 echo "✓ Build complete!"
 echo "Application: dist/AlbumStudio.app"
 echo ""
 echo "To create a DMG installer:"
-echo "  hdiutil create -volname AlbumStudio -srcfolder dist/AlbumStudio.app -ov -format UDZO dist/AlbumStudio.dmg"
+echo "  python3 build.py dmg"

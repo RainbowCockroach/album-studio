@@ -15,13 +15,16 @@ if exist build rmdir /s /q build
 if exist dist rmdir /s /q dist
 
 REM Build the application
+REM Entry point is run.py, not src\main.py -- see run.py for why.
 pyinstaller ^
     --name=AlbumStudio ^
     --windowed ^
     --onedir ^
+    --icon=assets/icon.ico ^
     --add-data=config;config ^
+    --add-data=assets;assets ^
     --noconfirm ^
-    src\main.py
+    run.py
 
 echo.
 echo Build complete!
