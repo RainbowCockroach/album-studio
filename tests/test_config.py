@@ -53,11 +53,11 @@ def test_generate_random_color_is_hex():
 class TestSettingsMerge:
     def test_user_overrides_bundled_but_new_keys_survive(self, make_config):
         cfg = make_config(
-            bundled_settings={"grid_columns": 5, "new_key": "present"},
-            user_settings={"grid_columns": 9},
+            bundled_settings={"thumbnail_size": 200, "new_key": "present"},
+            user_settings={"thumbnail_size": 320},
         )
         # user value wins
-        assert cfg.get_setting("grid_columns") == 9
+        assert cfg.get_setting("thumbnail_size") == 320
         # bundled-only key still reaches an existing user
         assert cfg.get_setting("new_key") == "present"
 
@@ -73,8 +73,8 @@ class TestSettingsMerge:
 
     def test_set_setting(self, make_config):
         cfg = make_config()
-        cfg.set_setting("grid_columns", 3)
-        assert cfg.get_setting("grid_columns") == 3
+        cfg.set_setting("thumbnail_size", 320)
+        assert cfg.get_setting("thumbnail_size") == 320
 
 
 # ------------------------------------------------------------------ migration

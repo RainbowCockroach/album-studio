@@ -2,8 +2,9 @@ import os
 import shutil
 from datetime import datetime
 from typing import Optional
-from PIL import Image, ImageOps
+from PIL import Image
 import piexif
+from ..utils.image_loader import open_oriented
 
 
 class ImageProcessor:
@@ -187,59 +188,14 @@ class ImageProcessor:
 
     @staticmethod
     def generate_thumbnail(file_path: str, size: int = 200) -> Optional[Image.Image]:
-        """Generate a thumbnail for an image file."""
+        """Generate a thumbnail for an image file, EXIF orientation applied."""
         try:
-            img = Image.open(file_path)
+            img = open_oriented(file_path)
             img.thumbnail((size, size), Image.Resampling.LANCZOS)
             return img
         except Exception as e:
             print(f"Error generating thumbnail for {file_path}: {e}")
             return None
-
-    @staticmethod
-    def correct_image_orientation(file_path: str) -> bool:
-        """
-        Correct image orientation based on EXIF orientation tag.
-        Rotates/flips the image as needed and saves it back with corrected orientation.
-
-        Args:
-            file_path: Path to the image file
-
-        Returns:
-            True if orientation was corrected, False otherwise
-        """
-        try:
-            # Register HEIC support
-            import pillow_heif
-            pillow_heif.register_heif_opener()
-
-            # Open the image
-            with Image.open(file_path) as img:
-                # Check if image has EXIF orientation tag
-                exif = img.getexif()
-                orientation = exif.get(274) if exif else None  # 274 is the Orientation tag
-
-                # If no orientation tag or orientation is normal (1), no correction needed
-                if not orientation or orientation == 1:
-                    return False
-
-                # Apply EXIF orientation transformation
-                # This automatically rotates/flips based on the EXIF orientation tag
-                corrected_img = ImageOps.exif_transpose(img)
-
-                # If correction was needed (image was rotated/flipped)
-                if corrected_img is not None:
-                    # Save the corrected image back
-                    # This will bake the rotation into the image and remove the orientation tag
-                    corrected_img.save(file_path, quality=95, optimize=True)
-                    print(f"Corrected orientation for: {os.path.basename(file_path)}")
-                    return True
-
-            return False
-
-        except Exception as e:
-            print(f"Error correcting orientation for {file_path}: {e}")
-            return False
 
     @staticmethod
     def rotate_image(file_path: str, degrees: int = -90) -> bool:
@@ -258,18 +214,31 @@ class ImageProcessor:
             import pillow_heif
             pillow_heif.register_heif_opener()
 
-            with Image.open(file_path) as img:
+            # Rotate relative to what the user sees, not the raw sensor buffer:
+            # open_oriented() applies (and strips) any EXIF orientation, so the
+            # rotation lands where expected and cannot be applied twice on load.
+            with open_oriented(file_path) as img:
+                # Carry the EXIF across by hand: Pillow writes none unless it is
+                # passed explicitly, which silently dropped the capture date on
+                # every rotation. open_oriented() has already removed the
+                # orientation tag from these bytes, so re-attaching them cannot
+                # re-rotate the image on the next load.
+                exif_bytes = img.info.get("exif")
+
                 # Rotate the image (negative for clockwise in Pillow)
                 rotated_img = img.rotate(degrees, expand=True)
 
                 # Preserve format info
                 img_format = img.format or "JPEG"
 
+                save_kwargs = {"exif": exif_bytes} if exif_bytes else {}
+
                 # Save the rotated image back
                 if img_format.upper() in ("JPEG", "JPG"):
-                    rotated_img.save(file_path, format="JPEG", quality=95, optimize=True)
+                    rotated_img.save(file_path, format="JPEG", quality=95,
+                                     optimize=True, **save_kwargs)
                 else:
-                    rotated_img.save(file_path, format=img_format)
+                    rotated_img.save(file_path, format=img_format, **save_kwargs)
 
                 print(f"Rotated image: {os.path.basename(file_path)}")
                 return True

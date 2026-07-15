@@ -1,10 +1,139 @@
 """Dialog for viewing an image in detail with zoom support."""
 from typing import Optional
-from PyQt6.QtWidgets import QDialog, QVBoxLayout, QLabel, QScrollArea, QApplication
-from PyQt6.QtCore import Qt, QPoint
-from PyQt6.QtGui import QPixmap, QWheelEvent, QMouseEvent, QKeyEvent
+from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QScrollArea,
+                             QApplication, QPushButton)
+from PyQt6.QtCore import (Qt, QPoint, pyqtSignal, QObject, QRunnable,
+                          QThreadPool)
+from PyQt6.QtGui import (QPixmap, QImage, QWheelEvent, QMouseEvent, QKeyEvent,
+                         QResizeEvent)
+from PIL import Image
 from src.utils.image_loader import ImageLoader
 from src.models.config import Config
+from src.ui.theme import (STYLE_VIEWER_NAV_BTN, VIEWER_NAV_SIZE,
+                          VIEWER_NAV_MARGIN)
+
+# How many rendered images to keep, and how many neighbours to warm on each
+# navigation. The viewer holds full-resolution-ish QImages (a 12MP RGB frame is
+# ~36MB), so this is a memory ceiling as much as a hit-rate knob: 5 entries
+# covers "arrow left and right a few times" without holding a whole project.
+_RENDER_CACHE_MAX = 5
+_PREFETCH_RADIUS = 1
+
+
+def _render_key(image_item, image_path: str):
+    """Identify a rendered frame by everything that changes its pixels.
+
+    Crop box and date-stamp state are in here because toggling either must not
+    serve a stale frame; the size tag drives the crop ratio.
+    """
+    if image_item is None:
+        return (image_path, None, None, False)
+    crop_box = image_item.crop_box
+    return (
+        image_path,
+        image_item.size_tag,
+        tuple(sorted(crop_box.items())) if crop_box else None,
+        bool(image_item.add_date_stamp),
+    )
+
+
+class _RenderSignals(QObject):
+    """Signals for _RenderTask. QRunnable is not a QObject, so they live here."""
+
+    done = pyqtSignal(object, object)  # (render key, QImage or None)
+
+
+class _RenderTask(QRunnable):
+    """Decode/crop/date-stamp one photo off the UI thread.
+
+    Emits a QImage, never a QPixmap: QPixmap is a QPaintDevice and constructing
+    one outside the GUI thread is undefined behaviour. The receiver on the main
+    thread does the (cheap, ~0ms) QPixmap.fromImage conversion.
+    """
+
+    def __init__(self, key, image_path, image_item, config, max_size):
+        super().__init__()
+        self.signals = _RenderSignals()
+        self.key = key
+        self.image_path = image_path
+        self.image_item = image_item
+        self.config = config
+        self.max_size = max_size
+
+    def run(self):
+        try:
+            image = _render_image(self.image_path, self.image_item,
+                                  self.config, self.max_size)
+        except Exception as e:  # a broken file must not take the pool down
+            print(f"Error rendering {self.image_path}: {e}")
+            image = None
+        self.signals.done.emit(self.key, image)
+
+
+def _render_image(image_path: str, image_item, config,
+                  max_size: int) -> Optional[QImage]:
+    """Produce the QImage the viewer displays: cropped + stamped if tagged.
+
+    Thread-safe — pure PIL and QImage, no widget or QPixmap access.
+    """
+    should_crop = (image_item is not None and
+                   image_item.is_fully_tagged() and
+                   config is not None)
+
+    if not should_crop:
+        return ImageLoader.load_qimage(image_path, max_size=max_size)
+
+    try:
+        from src.services.crop_service import CropService
+        from src.utils.image_loader import open_oriented, pil_to_qimage
+
+        crop_service = CropService(config)
+        crop_box = crop_service.get_crop_box(
+            image_path, image_item.size_tag,
+            manual_crop_box=image_item.crop_box)
+
+        if not crop_box:
+            return ImageLoader.load_qimage(image_path, max_size=max_size)
+
+        img = open_oriented(image_path)
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        x, y, width, height = crop_box
+        cropped_img = img.crop((x, y, x + width, y + height))
+
+        if image_item.add_date_stamp:
+            cropped_img = _apply_date_stamp(cropped_img, image_item, config)
+
+        # Downscale before handing to Qt. The viewer never shows more than
+        # ~1500px of this, and a 12MP frame costs ~36MB to hold and ~10ms to
+        # rescale on every zoom step.
+        if max_size and max(cropped_img.size) > max_size:
+            cropped_img.thumbnail((max_size, max_size),
+                                  Image.Resampling.LANCZOS)
+
+        return pil_to_qimage(cropped_img)
+
+    except Exception as e:
+        print(f"Error loading cropped image: {e}")
+        return ImageLoader.load_qimage(image_path, max_size=max_size)
+
+
+def _apply_date_stamp(img, image_item, config):
+    """Stamp ``img`` in place of the old method, callable from a worker thread."""
+    if not image_item or not config:
+        return img
+    try:
+        from src.services.date_stamp_service import DateStampService
+
+        display_date = image_item.get_display_date()
+        if not display_date:
+            return img
+        return DateStampService(config).apply_date_stamp(
+            img, display_date, image_item.size_tag)
+    except Exception as e:
+        print(f"Error applying date stamp preview: {e}")
+        return img
 
 
 class ZoomableImageLabel(QLabel):
@@ -107,18 +236,43 @@ class ZoomableImageLabel(QLabel):
 
 
 class ImageViewerDialog(QDialog):
-    """Dialog for viewing an image in detail with zoom support."""
+    """Dialog for viewing an image in detail with zoom support.
 
-    def __init__(self, image_path: str, parent=None, image_item=None, config=None):
+    Pass ``images`` (the project's images, in grid order) to enable Left/Right
+    browsing to the neighbouring photo. Omit it and the viewer shows the single
+    ``image_item`` with navigation switched off.
+    """
+
+    image_changed = pyqtSignal(object)  # Emits the ImageItem navigated to
+
+    def __init__(self, image_path: str, parent=None, image_item=None, config=None,
+                 images=None):
         super().__init__(parent)
         self.image_path = image_path
         self.image_item = image_item
         self.config = config
 
+        # Navigation. `index` addresses `images`; both stay valid when the list
+        # is empty (no image_item) — navigate() is then a no-op.
+        self.images = list(images) if images else ([image_item] if image_item else [])
+        self.index = self.images.index(image_item) if image_item in self.images else 0
+
         # Real-size preview mode
         self.real_size_mode = False
         self.can_use_real_size = self._check_real_size_available()
         self.loaded_pixmap = None  # Store the loaded pixmap for mode switching
+
+        # Rendered-frame cache and the pool that fills it. Renders are dispatched
+        # by key; `_pending_key` is the one the user is actually waiting for, so
+        # a result that arrives after they have already arrowed on is dropped
+        # rather than flashed on screen.
+        self._render_cache: dict = {}
+        self._pending_key = None
+        self._loading = False
+        self._pool = QThreadPool(self)
+        # Cap the pool: the point is to keep the UI thread free and warm one or
+        # two neighbours, not to decode a whole project at once.
+        self._pool.setMaxThreadCount(2)
 
         self.setWindowTitle("Image Viewer")
         self.setWindowFlags(
@@ -153,6 +307,11 @@ class ImageViewerDialog(QDialog):
         self.scroll_area = QScrollArea()
         self.scroll_area.setWidgetResizable(True)
         self.scroll_area.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # CRITICAL: QAbstractScrollArea consumes arrow keys to scroll itself, and
+        # it takes focus by default — which would swallow Left/Right before
+        # keyPressEvent ever sees them. Nothing here needs key focus: wheel-zoom
+        # and drag-pan are mouse-driven. See tests/test_image_viewer_nav.py.
+        self.scroll_area.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.scroll_area.setStyleSheet("""
             QScrollArea {
                 background-color: transparent;
@@ -179,113 +338,176 @@ class ImageViewerDialog(QDialog):
 
         self.setLayout(layout)
 
+        # Navigation chevrons. Children of the dialog rather than layout members,
+        # so they float over the photo; resizeEvent keeps them centred. Being real
+        # children, they take their own clicks — mousePressEvent's click-outside-
+        # to-close never fires for them, even though they sit outside scroll_area.
+        self.prev_btn = self._make_nav_button("‹", -1)
+        self.next_btn = self._make_nav_button("›", +1)
+        self._update_nav_buttons()
+
+    def _make_nav_button(self, glyph: str, delta: int) -> QPushButton:
+        """Build one floating chevron that steps the viewer by ``delta``."""
+        button = QPushButton(glyph, self)
+        button.setFixedSize(VIEWER_NAV_SIZE, VIEWER_NAV_SIZE)
+        button.setStyleSheet(STYLE_VIEWER_NAV_BTN)
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # else it eats the arrow keys
+        button.clicked.connect(lambda: self.navigate(delta))
+        return button
+
+    def _update_nav_buttons(self):
+        """Show each chevron only where it leads somewhere."""
+        self.prev_btn.setVisible(self._target_index(-1) is not None)
+        self.next_btn.setVisible(self._target_index(+1) is not None)
+
+    def resizeEvent(self, a0: Optional[QResizeEvent]):
+        """Keep the chevrons pinned to the vertical centre of each edge."""
+        super().resizeEvent(a0)
+        y = (self.height() - VIEWER_NAV_SIZE) // 2
+        self.prev_btn.move(VIEWER_NAV_MARGIN, y)
+        self.next_btn.move(
+            self.width() - VIEWER_NAV_SIZE - VIEWER_NAV_MARGIN, y)
+
+    def _target_index(self, delta: int) -> Optional[int]:
+        """The neighbour ``delta`` steps away, or None at the ends of the list."""
+        if not self.images:
+            return None
+        target = self.index + delta
+        return target if 0 <= target < len(self.images) else None
+
+    def navigate(self, delta: int):
+        """Step to a neighbouring image. Silently does nothing at the ends."""
+        target = self._target_index(delta)
+        if target is not None:
+            self._show_index(target)
+
+    def _show_index(self, index: int):
+        """Point the viewer at ``images[index]`` and reload all that depends on it."""
+        self.index = index
+        self.image_item = self.images[index]
+        self.image_path = self.image_item.file_path
+
+        self.can_use_real_size = self._check_real_size_available()
+        # Real-size is sticky across navigation, but only survives onto images
+        # that can actually honour it (i.e. are fully tagged).
+        if self.real_size_mode and not self.can_use_real_size:
+            self.real_size_mode = False
+
+        # Resets zoom to fit-to-window, and re-applies real-size itself once the
+        # frame is actually in hand — which may be after this returns.
+        self.load_image()
+
+        self._update_hint_label()
+        self._update_nav_buttons()
+        self.image_changed.emit(self.image_item)
+
+    def _render_max_size(self) -> int:
+        """Longest edge worth decoding: what fit-to-window can actually show.
+
+        Rendering beyond this only costs memory and makes every zoom step
+        rescale more pixels. Generous enough that zooming in stays sharp.
+        """
+        primary_screen = QApplication.primaryScreen()
+        if not primary_screen:
+            return 2000
+        screen = primary_screen.geometry()
+        return int(max(screen.width(), screen.height()) * 0.9 * 2)
+
     def load_image(self):
-        """Load the image at full resolution, cropped if tagged."""
-        # Check if we should display cropped version
-        should_crop = (self.image_item is not None and
-                       self.image_item.is_fully_tagged() and
-                       self.config is not None)
+        """Show the current image, rendering off-thread unless already cached."""
+        key = _render_key(self.image_item, self.image_path)
 
-        if should_crop:
-            # Load cropped version using CropService
-            try:
-                from PIL import Image
-                from src.services.crop_service import CropService
+        cached = self._render_cache.get(key)
+        if cached is not None:
+            self._pending_key = None
+            # Clear the flag even though nothing was awaited here: arrowing off a
+            # still-rendering photo onto a cached one would otherwise strand the
+            # hint on "Loading…" until some unrelated render happened to finish.
+            self._set_loading(False)
+            self._display_image(cached)
+            self._prefetch_neighbours()
+            return
 
-                crop_service = CropService(self.config)
-                crop_box = crop_service.get_crop_box(
-                    self.image_path,
-                    self.image_item.size_tag,
-                    manual_crop_box=self.image_item.crop_box
-                )
+        # Nothing to show yet. Keep the previous frame on screen rather than
+        # blanking — an empty viewer reads as a crash — and say why it is waiting.
+        self._pending_key = key
+        self._set_loading(True)
 
-                if crop_box:
-                    # Load image with Pillow and crop it
-                    img = Image.open(self.image_path)
-                    if img.mode != 'RGB':
-                        img = img.convert('RGB')
+        task = _RenderTask(key, self.image_path, self.image_item, self.config,
+                           self._render_max_size())
+        task.signals.done.connect(self._on_render_done)
+        self._pool.start(task)
 
-                    x, y, width, height = crop_box
-                    cropped_img = img.crop((x, y, x + width, y + height))
+    def _on_render_done(self, key, image):
+        """Receive a rendered frame. Runs on the UI thread (queued connection)."""
+        if image is not None and not image.isNull():
+            self._cache_put(key, image)
 
-                    # Apply date stamp preview if enabled
-                    if self.image_item.add_date_stamp:
-                        cropped_img = self._apply_date_stamp_preview(cropped_img)
+        # Only paint it if it is still what the user is looking at; a prefetched
+        # or superseded frame just lands in the cache.
+        if key == self._pending_key:
+            self._pending_key = None
+            self._set_loading(False)
+            if image is not None and not image.isNull():
+                self._display_image(image)
+            # Warm neighbours only now, so the photo being waited on never
+            # queues behind a prefetch for one nobody asked for.
+            self._prefetch_neighbours()
 
-                    # Convert PIL Image to QPixmap
-                    import io
+    def _cache_put(self, key, image):
+        """Insert into the render cache, evicting oldest first."""
+        if key in self._render_cache:
+            return
+        if len(self._render_cache) >= _RENDER_CACHE_MAX:
+            self._render_cache.pop(next(iter(self._render_cache)))
+        self._render_cache[key] = image
 
-                    # Save PIL image to bytes
-                    img_bytes = io.BytesIO()
-                    cropped_img.save(img_bytes, format='PNG')
-                    img_bytes.seek(0)
+    def _display_image(self, image: QImage):
+        """Convert to a pixmap and show it fit-to-window (or at real size)."""
+        pixmap = QPixmap.fromImage(image)
+        if pixmap.isNull():
+            return
 
-                    # Load bytes into QPixmap
-                    pixmap = QPixmap()
-                    pixmap.loadFromData(img_bytes.read())
-                else:
-                    # Fallback to full image if crop calculation failed
-                    pixmap = ImageLoader.load_pixmap(self.image_path)
+        self.loaded_pixmap = pixmap
+        self.image_label.set_image(pixmap, self._fit_zoom(pixmap))
+        if self.real_size_mode:
+            self._apply_real_size_zoom()
 
-            except Exception as e:
-                print(f"Error loading cropped image: {e}")
-                # Fallback to full image on error
-                pixmap = ImageLoader.load_pixmap(self.image_path)
-        else:
-            # Load full image
-            pixmap = ImageLoader.load_pixmap(self.image_path)
+    def _fit_zoom(self, pixmap: QPixmap) -> float:
+        """Zoom factor that fits ``pixmap`` in the window, never upscaling."""
+        primary_screen = QApplication.primaryScreen()
+        if not primary_screen or pixmap.width() == 0 or pixmap.height() == 0:
+            return 1.0
+        screen = primary_screen.geometry()
+        # Account for margins (20px each side) and hint label (~40px)
+        max_width = int(screen.width() * 0.9) - 40
+        max_height = int(screen.height() * 0.9) - 80
+        return min(max_width / pixmap.width(),
+                   max_height / pixmap.height(),
+                   1.0)
 
-        if not pixmap.isNull():
-            # Store pixmap for mode switching
-            self.loaded_pixmap = pixmap
+    def _set_loading(self, loading: bool):
+        """Reflect render-in-flight state in the hint line."""
+        self._loading = loading
+        self._update_hint_label()
 
-            # Calculate zoom to fit image inside window
-            screen = QApplication.primaryScreen().geometry()
-            # Account for margins (20px each side) and hint label (~40px)
-            max_width = int(screen.width() * 0.9) - 40
-            max_height = int(screen.height() * 0.9) - 80
-
-            # Always calculate fit-to-window zoom
-            width_ratio = max_width / pixmap.width()
-            height_ratio = max_height / pixmap.height()
-            initial_zoom = min(width_ratio, height_ratio, 1.0)  # Don't upscale small images
-
-            self.image_label.set_image(pixmap, initial_zoom)
-
-    def _apply_date_stamp_preview(self, img):
-        """
-        Apply date stamp preview to the PIL Image.
-
-        Args:
-            img: PIL Image to apply date stamp to
-
-        Returns:
-            PIL Image with date stamp applied
-        """
-        if not self.image_item or not self.config:
-            return img
-
-        try:
-            from src.services.date_stamp_service import DateStampService
-
-            # Get display date
-            display_date = self.image_item.get_display_date()
-            if not display_date:
-                return img
-
-            # Apply date stamp using the service
-            date_stamp_service = DateStampService(self.config)
-            stamped_img = date_stamp_service.apply_date_stamp(
-                img,
-                display_date,
-                self.image_item.size_tag
-            )
-
-            return stamped_img
-
-        except Exception as e:
-            print(f"Error applying date stamp preview: {e}")
-            return img  # Return original image on error
+    def _prefetch_neighbours(self):
+        """Warm the frames the user is one arrow-press away from needing."""
+        for delta in range(-_PREFETCH_RADIUS, _PREFETCH_RADIUS + 1):
+            if delta == 0:
+                continue
+            target = self._target_index(delta)
+            if target is None:
+                continue
+            item = self.images[target]
+            key = _render_key(item, item.file_path)
+            if key in self._render_cache:
+                continue
+            task = _RenderTask(key, item.file_path, item, self.config,
+                               self._render_max_size())
+            task.signals.done.connect(self._on_render_done)
+            self._pool.start(task)
 
     def _check_real_size_available(self) -> bool:
         """Check if real-size preview is available for this image."""
@@ -305,10 +527,20 @@ class ImageViewerDialog(QDialog):
         """Update the hint label based on current mode."""
         base_hint = "Scroll to zoom | Drag to pan | Click outside or ESC to close"
 
+        # Position counter — the only discoverability the arrow keys get.
+        if len(self.images) > 1:
+            base_hint = (f"{self.index + 1} / {len(self.images)} | "
+                         f"← → to browse | {base_hint}")
+
         # Check if date stamp preview is shown
         date_stamp_indicator = ""
         if self.image_item and self.image_item.add_date_stamp:
             date_stamp_indicator = "[DATE STAMP PREVIEW] | "
+
+        # The previous photo stays on screen while the next one renders, so
+        # without this there is no sign anything is happening.
+        if getattr(self, "_loading", False):
+            date_stamp_indicator = f"[Loading…] | {date_stamp_indicator}"
 
         if self.can_use_real_size:
             if self.real_size_mode:
@@ -340,16 +572,8 @@ class ImageViewerDialog(QDialog):
             if self.real_size_mode:
                 self._apply_real_size_zoom()
             else:
-                # Restore fit-to-window zoom
-                screen = QApplication.primaryScreen().geometry()
-                max_width = int(screen.width() * 0.9) - 40
-                max_height = int(screen.height() * 0.9) - 80
-
-                width_ratio = max_width / self.loaded_pixmap.width()
-                height_ratio = max_height / self.loaded_pixmap.height()
-                initial_zoom = min(width_ratio, height_ratio, 1.0)
-
-                self.image_label.set_image(self.loaded_pixmap, initial_zoom)
+                self.image_label.set_image(self.loaded_pixmap,
+                                           self._fit_zoom(self.loaded_pixmap))
 
     def _apply_real_size_zoom(self):
         """Apply zoom level for real-size preview."""
@@ -382,14 +606,35 @@ class ImageViewerDialog(QDialog):
             self._update_hint_label()
 
     def keyPressEvent(self, event: Optional[QKeyEvent]):
-        """Handle keyboard shortcuts: ESC to close, R to toggle real-size mode."""
+        """ESC closes, R toggles real-size, Left/Right browse the project."""
         if event:
             if event.key() == Qt.Key.Key_Escape:
                 self.close()
             elif event.key() == Qt.Key.Key_R:
                 self.toggle_real_size_mode()
+            elif event.key() in (Qt.Key.Key_Left, Qt.Key.Key_Right):
+                # Each step is a full-resolution load, plus a crop and date-stamp
+                # render for tagged images. Held-down auto-repeat would queue up
+                # seconds of work for frames nobody sees.
+                if not event.isAutoRepeat():
+                    self.navigate(-1 if event.key() == Qt.Key.Key_Left else +1)
             else:
                 super().keyPressEvent(event)
+
+    def closeEvent(self, a0):
+        """Let in-flight renders finish before the dialog can be torn down.
+
+        Each _RenderTask emits into this dialog. If Python collected it while a
+        worker was still running, that signal would fire at freed memory and take
+        the app down — so stop accepting results, then wait the pool out. Waiting
+        is bounded by one render (a few hundred ms) and only bites if you close
+        the viewer the instant you opened it.
+        """
+        self._pending_key = None
+        self._pool.clear()  # drop tasks that have not started
+        self._pool.waitForDone()
+        self._render_cache.clear()
+        super().closeEvent(a0)
 
     def mousePressEvent(self, event: Optional[QMouseEvent]):
         """Close dialog when clicking outside the image area."""

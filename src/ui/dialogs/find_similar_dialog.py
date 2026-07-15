@@ -1,9 +1,22 @@
 """Dialog for finding and displaying similar images."""
+import os
+
 from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-                             QScrollArea, QWidget, QGridLayout, QMessageBox,
+                             QFrame, QSizePolicy, QMessageBox,
                              QProgressDialog, QSlider, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
 from ...services.image_similarity_service import SimilaritySearchWorker
+from ..theme import (
+    card_size, card_style, CARD_CAPTION_HEIGHT, CARD_OBJECT_NAME,
+    CARD_PADDING, CARD_SPACING, CARD_TEXT_HEIGHT,
+    CARD_SELECTED_BG, CARD_SELECTED_BORDER,
+    CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
+    STYLE_FILENAME_LABEL, STYLE_READONLY_FIELD, STYLE_STATUS_LABEL, TEXT_MUTED)
+from ..widgets.card_grid import CardGrid
+
+# Results use a smaller thumbnail than the main grid: this dialog is a picker,
+# and more results on screen matters more than detail.
+RESULT_THUMBNAIL_SIZE = 150
 
 
 class ComparisonImage:
@@ -32,8 +45,14 @@ class ComparisonImage:
         return self._thumbnail
 
 
-class ImageThumbnail(QWidget):
-    """Widget for displaying a single thumbnail with similarity score."""
+class ImageThumbnail(QFrame):
+    """A result card: thumbnail, similarity score, filename.
+
+    A QFrame rather than a plain QWidget because a stylesheet background and
+    border simply do not paint on a bare QWidget subclass — it has no styled
+    paintEvent, so the old ``ImageThumbnail { … }`` rule here silently drew
+    nothing and the results floated on the dialog with no card behind them.
+    """
 
     clicked = pyqtSignal(object)  # Emits ImageItem when clicked
 
@@ -44,51 +63,55 @@ class ImageThumbnail(QWidget):
         self.init_ui()
 
     def init_ui(self):
-        layout = QVBoxLayout()
-        layout.setContentsMargins(5, 5, 5, 5)
+        # Same object name, size and chrome as the cards in the main grid — the
+        # two grids should look like one app. See theme.card_size().
+        self.setObjectName(CARD_OBJECT_NAME)
+        self.setFixedSize(*card_size(RESULT_THUMBNAIL_SIZE))
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
 
-        # Image thumbnail
-        thumbnail = self.image_item.get_thumbnail(150)
-        if thumbnail:
-            image_label = QLabel()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(CARD_PADDING, CARD_PADDING, CARD_PADDING, CARD_PADDING)
+        layout.setSpacing(CARD_SPACING)
+
+        # Image thumbnail. The label is added even when the thumbnail fails to
+        # load, so a broken image leaves a gap rather than shunting the score
+        # and filename up into its place.
+        image_label = QLabel()
+        image_label.setFixedSize(RESULT_THUMBNAIL_SIZE, RESULT_THUMBNAIL_SIZE)
+        image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        thumbnail = self.image_item.get_thumbnail(RESULT_THUMBNAIL_SIZE)
+        if thumbnail and not thumbnail.isNull():
             image_label.setPixmap(thumbnail)
-            image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            layout.addWidget(image_label)
+        else:
+            image_label.setText("No image")
+            image_label.setStyleSheet(f"color: {TEXT_MUTED};")
+        layout.addWidget(image_label, alignment=Qt.AlignmentFlag.AlignHCenter)
 
         # Similarity score
-        score_text = f"Similarity: {self.similarity_score:.1%}"
-        score_label = QLabel(score_text)
+        score_label = QLabel(f"Similarity: {self.similarity_score:.1%}")
         score_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        score_label.setFixedHeight(CARD_TEXT_HEIGHT)
         layout.addWidget(score_label)
 
         # File name
-        import os
-        filename = os.path.basename(self.image_item.file_path)
-        filename_label = QLabel(filename)
+        filename_label = QLabel(os.path.basename(self.image_item.file_path))
         filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         filename_label.setWordWrap(True)
-        filename_label.setStyleSheet("font-size: 10px; color: gray;")
+        filename_label.setStyleSheet(STYLE_FILENAME_LABEL)
+        filename_label.setFixedHeight(CARD_CAPTION_HEIGHT)
         layout.addWidget(filename_label)
 
         self.setLayout(layout)
 
         # Make it look clickable
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("""
-            ImageThumbnail {
-                border: 2px solid #ccc;
-                border-radius: 5px;
-                background: white;
-            }
-            ImageThumbnail:hover {
-                border: 2px solid #0078d7;
-                background: #f0f0f0;
-            }
-        """)
+        self.setStyleSheet(card_style(
+            CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
+            hover_bg=CARD_SELECTED_BG, hover_border=CARD_SELECTED_BORDER))
 
     def mousePressEvent(self, event):
         """Handle mouse click."""
-        if event.button() == Qt.MouseButton.LeftButton:
+        if event and event.button() == Qt.MouseButton.LeftButton:
             self.clicked.emit(self.image_item)
         super().mousePressEvent(event)
 
@@ -129,7 +152,7 @@ class FindSimilarDialog(QDialog):
         target_layout.addWidget(target_label)
 
         self.target_image_label = QLabel("No image selected")
-        self.target_image_label.setStyleSheet("padding: 5px; background: #f0f0f0; border: 1px solid #ccc;")
+        self.target_image_label.setStyleSheet(STYLE_READONLY_FIELD)
         target_layout.addWidget(self.target_image_label, stretch=1)
 
         layout.addLayout(target_layout)
@@ -172,22 +195,13 @@ class FindSimilarDialog(QDialog):
         self.search_btn.setEnabled(False)
         layout.addWidget(self.search_btn)
 
-        # Results scroll area
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        self.results_widget = QWidget()
-        self.results_layout = QGridLayout()
-        self.results_widget.setLayout(self.results_layout)
-        scroll.setWidget(self.results_widget)
-
-        layout.addWidget(scroll, stretch=1)
+        # Results grid — fixed-size cards, columns reflowed to the dialog width.
+        self.results_grid = CardGrid(RESULT_THUMBNAIL_SIZE)
+        layout.addWidget(self.results_grid, stretch=1)
 
         # Status label
         self.status_label = QLabel("")
-        self.status_label.setStyleSheet("color: gray; font-style: italic;")
+        self.status_label.setStyleSheet(STYLE_STATUS_LABEL)
         layout.addWidget(self.status_label)
 
         # Close button
@@ -214,11 +228,7 @@ class FindSimilarDialog(QDialog):
 
     def clear_results(self):
         """Clear the results grid UI widgets only."""
-        # Remove all widgets from grid
-        while self.results_layout.count():
-            item = self.results_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self.results_grid.clear_cards()
 
         # Note: Do NOT clear self.similar_images here - that's data, not UI
 
@@ -300,22 +310,13 @@ class FindSimilarDialog(QDialog):
 
     def display_results(self):
         """Display similar images in a grid."""
-        self.clear_results()
-
-        if not self.similar_images:
-            return
-
-        # Display in grid (4 columns)
-        columns = 4
-
-        for i, (image_item, similarity) in enumerate(self.similar_images):
-            row = i // columns
-            col = i % columns
-
+        cards = []
+        for image_item, similarity in self.similar_images:
             thumbnail = ImageThumbnail(image_item, similarity)
             thumbnail.clicked.connect(self.on_thumbnail_clicked)
+            cards.append(thumbnail)
 
-            self.results_layout.addWidget(thumbnail, row, col)
+        self.results_grid.set_cards(cards)
 
     def on_thumbnail_clicked(self, image_item):
         """Handle clicking on a similar image."""
@@ -323,6 +324,5 @@ class FindSimilarDialog(QDialog):
         self.image_selected.emit(image_item)
 
         # Show info
-        import os
         filename = os.path.basename(image_item.file_path)
         self.status_label.setText(f"Selected: {filename}")

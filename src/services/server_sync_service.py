@@ -23,7 +23,7 @@ import urllib.parse
 import urllib.request
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 # urllib exposes a single socket timeout per request; we use a short one for the
 # small JSON/health calls and a long one for streaming photo downloads.
@@ -283,7 +283,8 @@ class ServerSyncService:
                 return candidate
             counter += 1
 
-    def download(self, photo: RemotePhoto, dest_dir: Path, project: str) -> Path:
+    def download(self, photo: RemotePhoto, dest_dir: Path, project: str,
+                 progress_callback: Optional[Callable[[int, int], None]] = None) -> Path:
         """Stream a photo to `dest_dir`, verify its SHA-256, and ledger it.
 
         Streams to a temp file in the destination directory, verifies the bytes
@@ -291,6 +292,13 @@ class ServerSyncService:
         mismatch the temp file is removed and the photo is NOT recorded. The
         ledger is updated immediately after a successful download so an
         interrupted pull never re-fetches what already landed.
+
+        Args:
+            progress_callback: Optional callback(downloaded_bytes, total_bytes)
+                fired per chunk. `total_bytes` is the size the server advertised
+                in the listing, which is not re-derived from the stream — so a
+                caller must tolerate a final `downloaded_bytes` that disagrees
+                with it if the server under- or over-reported.
         """
         dest_dir = Path(dest_dir)
         dest_dir.mkdir(parents=True, exist_ok=True)
@@ -298,6 +306,7 @@ class ServerSyncService:
         fd, tmp_name = tempfile.mkstemp(prefix=".dl_", suffix=".part", dir=str(dest_dir))
         tmp_path = Path(tmp_name)
         sha = hashlib.sha256()
+        downloaded = 0
         try:
             with self._request(f"/photos/{photo.hash}", DOWNLOAD_TIMEOUT) as resp:
                 with os.fdopen(fd, "wb") as out:
@@ -307,6 +316,9 @@ class ServerSyncService:
                             break
                         sha.update(chunk)
                         out.write(chunk)
+                        downloaded += len(chunk)
+                        if progress_callback:
+                            progress_callback(downloaded, photo.size)
         except ServerSyncError:
             tmp_path.unlink(missing_ok=True)
             raise

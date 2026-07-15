@@ -2,8 +2,8 @@
 import os
 from typing import List, Tuple, Optional, Dict
 import numpy as np
-from PIL import Image
 from PyQt6.QtCore import QThread, pyqtSignal
+from ..utils.image_loader import open_oriented
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # Lazy imports for torch to avoid loading if not needed
@@ -75,8 +75,9 @@ class ImageSimilarityService:
         try:
             import torch
 
-            # Load and preprocess image
-            img = Image.open(image_path).convert('RGB')
+            # Load and preprocess image (EXIF orientation applied, so a rotated
+            # photo doesn't read as dissimilar to its own upright duplicate)
+            img = open_oriented(image_path).convert('RGB')
 
             img_tensor = _transform(img).unsqueeze(0)  # type: ignore[misc]
 

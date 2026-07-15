@@ -2,8 +2,8 @@
   "workspace_directory": "",
   "default_input_folder": "",
   "default_output_folder": "",
+  "last_project": "",
   "thumbnail_size": 200,
-  "grid_columns": 5,
   "date_format": "%Y%m%d_%H%M%S",
   "supported_formats": [
     ".jpg",

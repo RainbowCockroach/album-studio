@@ -33,6 +33,71 @@ class TestImageItemTags:
         assert item.crop_box is None
 
 
+class TestSetTagsCropBox:
+    """A crop box is only meaningful for the ratio it was drawn against."""
+
+    def test_changing_size_ratio_clears_crop_box(self):
+        item = ImageItem("/x/a.jpg")
+        item.set_tags(album="A4", size="9x6")  # 3:2
+        item.crop_box = {"x": 0, "y": 0, "width": 600, "height": 400}
+
+        item.set_tags(size="6x6")  # 1:1 — the old box is now the wrong shape
+
+        assert item.crop_box is None
+
+    def test_same_ratio_keeps_crop_box(self):
+        """The box stays valid across tags that mean the same ratio.
+
+        Pins the other half of the BUG-4 fix: 9x6 and 12x8 are both 3:2, so
+        clearing on a bare tag-string comparison would throw away good work.
+        """
+        item = ImageItem("/x/a.jpg")
+        item.set_tags(album="A4", size="9x6")
+        box = {"x": 0, "y": 0, "width": 600, "height": 400}
+        item.crop_box = box
+
+        item.set_tags(size="12x8")
+
+        assert item.crop_box == box
+
+    def test_retagging_same_size_keeps_crop_box(self):
+        """Re-clicking the same tag must not silently discard a manual crop."""
+        item = ImageItem("/x/a.jpg")
+        item.set_tags(album="A4", size="9x6")
+        box = {"x": 10, "y": 20, "width": 600, "height": 400}
+        item.crop_box = box
+
+        item.set_tags(album="A4", size="9x6")
+
+        assert item.crop_box == box
+
+    def test_album_only_change_keeps_crop_box(self):
+        """Moving a photo between albums does not change its shape."""
+        item = ImageItem("/x/a.jpg")
+        item.set_tags(album="A4", size="9x6")
+        box = {"x": 10, "y": 20, "width": 600, "height": 400}
+        item.crop_box = box
+
+        item.set_tags(album="A5")
+
+        assert item.crop_box == box
+
+    def test_unparseable_size_clears_crop_box(self):
+        """An unprovable ratio is treated as a different one.
+
+        parse_size_ratio raises on a name it cannot read, so neither side of the
+        comparison can be trusted — dropping the box costs a re-drag, keeping it
+        risks a stretched print.
+        """
+        item = ImageItem("/x/a.jpg")
+        item.set_tags(album="A4", size="9x6")
+        item.crop_box = {"x": 0, "y": 0, "width": 600, "height": 400}
+
+        item.set_tags(size="Panorama")
+
+        assert item.crop_box is None
+
+
 class TestImageItemSerialization:
     def test_round_trip(self):
         item = ImageItem("/x/a.jpg")

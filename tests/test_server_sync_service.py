@@ -249,6 +249,51 @@ class TestDownload:
         # no leftover file remains in the destination
         assert list(dest.iterdir()) == []
 
+    def test_download_reports_byte_progress(self, tmp_path, monkeypatch):
+        """The progress bar is driven by these callbacks; they must count up."""
+        # Two full 256 KB chunks plus a short tail, so the read loop runs 3x.
+        data = b"x" * (1024 * 256 * 2 + 5)
+        svc = make_service(tmp_path)
+        self._patch_bytes(svc, monkeypatch, data)
+        photo = RemotePhoto.from_json(photo_dict(data))
+
+        seen = []
+        svc.download(photo, tmp_path / "2026-06" / "input", "2026-06",
+                     progress_callback=lambda done, total: seen.append((done, total)))
+
+        assert seen == [(1024 * 256, len(data)),
+                        (1024 * 256 * 2, len(data)),
+                        (len(data), len(data))]
+
+    def test_download_without_callback_still_works(self, tmp_path, monkeypatch):
+        """The callback is optional — the CLI and tests call download() plain."""
+        data = b"no callback here"
+        svc = make_service(tmp_path)
+        self._patch_bytes(svc, monkeypatch, data)
+        photo = RemotePhoto.from_json(photo_dict(data))
+
+        result = svc.download(photo, tmp_path / "2026-06" / "input", "2026-06")
+
+        assert result.read_bytes() == data
+
+    def test_download_progress_total_is_the_advertised_size(self, tmp_path, monkeypatch):
+        """A server that lies about size must not break the callback contract.
+
+        The UI clamps on its side; the service just reports what it was told,
+        so `total` stays fixed even as `done` sails past it.
+        """
+        data = b"y" * 100
+        svc = make_service(tmp_path)
+        self._patch_bytes(svc, monkeypatch, data)
+        # advertised size is a quarter of the real payload
+        photo = RemotePhoto.from_json(photo_dict(data, size=25))
+
+        seen = []
+        svc.download(photo, tmp_path / "2026-06" / "input", "2026-06",
+                     progress_callback=lambda done, total: seen.append((done, total)))
+
+        assert seen == [(100, 25)]
+
     def test_download_no_collision_second_file_suffixed(self, tmp_path, monkeypatch):
         svc = make_service(tmp_path)
         dest = tmp_path / "2026-06" / "input"

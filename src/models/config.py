@@ -363,8 +363,8 @@ class Config:
             "workspace_directory": "",
             "default_input_folder": "",
             "default_output_folder": "",
+            "last_project": "",  # Reopened on next launch; see MainWindow.load_projects
             "thumbnail_size": 200,
-            "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
             "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)

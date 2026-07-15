@@ -1,9 +1,12 @@
 """Shared pytest fixtures for the Album Studio test suite.
 
-These tests exercise the pure-logic layers only (``src/models`` and
-``src/services``) — no Qt widgets are constructed. We still force Qt's
-``offscreen`` platform plugin so importing modules that pull in PyQt6 never
+These tests exercise the pure-logic layers (``src/models`` and
+``src/services``). Qt's ``offscreen`` platform plugin is forced so nothing ever
 tries to reach a display on a headless machine.
+
+The one deliberate exception is ``test_main_window_pull.py``: the 'Pull from
+Server' dialog handlers hid a bug that no service-level test could catch, so
+they get the ``qapp`` fixture below. Widgets remain untested otherwise.
 """
 
 import json
@@ -12,6 +15,18 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """The process-wide QApplication required to construct any widget.
+
+    Session-scoped because Qt allows only one per process; it is intentionally
+    never torn down, as destroying it mid-session breaks later widget tests.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    yield QApplication.instance() or QApplication([])
 
 
 @pytest.fixture
