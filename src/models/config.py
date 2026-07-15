@@ -363,8 +363,8 @@ class Config:
             "workspace_directory": "",
             "default_input_folder": "",
             "default_output_folder": "",
+            "last_project": "",  # Reopened on next launch; see MainWindow.load_projects
             "thumbnail_size": 200,
-            "grid_columns": 5,
             "date_format": "%Y%m%d_%H%M%S",
             "supported_formats": [".jpg", ".jpeg", ".png", ".heic", ".JPG", ".JPEG", ".PNG", ".HEIC"],
             "pixels_per_unit": 100,  # Pixels per unit for real-size preview (calibrated by user)
@@ -376,7 +376,10 @@ class Config:
             "date_stamp_temp_outer": 1800,  # Outer glow temperature in Kelvin (warmer, 1000-4000)
             "date_stamp_temp_core": 6500,  # Core text temperature in Kelvin (hotter, 4000-10000)
             "date_stamp_glow_intensity": 80,  # 0-100
-            "date_stamp_opacity": 90  # 0-100
+            "date_stamp_opacity": 90,  # 0-100
+            # Server sync (Pull from server) — see docs/SERVER_SYNC.md
+            "server_url": "",
+            "server_token": ""
         }
 
     # ========== Config Export/Import ==========

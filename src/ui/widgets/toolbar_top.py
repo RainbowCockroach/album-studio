@@ -5,7 +5,11 @@ from PyQt6.QtCore import pyqtSignal
 
 from ...version import __version__
 from ..theme import (STYLE_DELETE_BTN, STYLE_SELECT_ALL_BTN, STYLE_DATESTAMP_BTN,
-                     STYLE_UPDATE_BTN, STYLE_TOTAL_COST, STYLE_VERSION_LABEL)
+                     STYLE_UPDATE_BTN, STYLE_TOTAL_COST, STYLE_VERSION_LABEL,
+                     STYLE_PULL_BTN, STYLE_PULL_BTN_BUSY)
+
+
+PULL_BTN_IDLE_TEXT = "Pull from Server"
 
 
 class ProjectToolbar(QWidget):
@@ -22,6 +26,7 @@ class ProjectToolbar(QWidget):
     date_stamp_confirmed = pyqtSignal()
     select_all_toggled = pyqtSignal()  # Emitted when select all/deselect all is clicked
     update_requested = pyqtSignal()  # Emitted when user clicks update button
+    pull_from_server_requested = pyqtSignal()  # Emitted when user clicks pull from server
 
     def __init__(self):
         super().__init__()
@@ -58,6 +63,16 @@ class ProjectToolbar(QWidget):
         self.archive_project_btn = QPushButton("Archive")
         self.archive_project_btn.clicked.connect(self.on_archive_project_clicked)
         layout.addWidget(self.archive_project_btn)
+
+        # Pull from server button
+        self.pull_server_btn = QPushButton(PULL_BTN_IDLE_TEXT)
+        self.pull_server_btn.setStyleSheet(STYLE_PULL_BTN)
+        self.pull_server_btn.clicked.connect(self.pull_from_server_requested.emit)
+        # Keeps the toolbar from reflowing as the label swaps between
+        # "Pull from Server" and the narrower in-progress texts.
+        self.pull_server_btn.setMinimumWidth(
+            self.pull_server_btn.sizeHint().width())
+        layout.addWidget(self.pull_server_btn)
 
         # ***************** Spacer *****************
         layout.addStretch()
@@ -137,6 +152,7 @@ class ProjectToolbar(QWidget):
 
         self.new_project_btn.setVisible(not enabled)
         self.archive_project_btn.setVisible(not enabled)
+        self.pull_server_btn.setVisible(not enabled)
         self.refresh_btn.setVisible(not enabled)
         self.project_combo.setEnabled(not enabled)
         self.add_photo_btn.setVisible(not enabled)
@@ -158,6 +174,7 @@ class ProjectToolbar(QWidget):
 
         self.new_project_btn.setVisible(not enabled)
         self.archive_project_btn.setVisible(not enabled)
+        self.pull_server_btn.setVisible(not enabled)
         self.refresh_btn.setVisible(not enabled)
         self.project_combo.setEnabled(not enabled)
         self.add_photo_btn.setVisible(not enabled)
@@ -172,6 +189,24 @@ class ProjectToolbar(QWidget):
         if enabled:
             self.select_all_btn.setChecked(False)
             self.select_all_btn.setText("Select All")
+
+    def set_pull_checking(self):
+        """Show the pull button as busy while the server is being listed."""
+        self.pull_server_btn.setEnabled(False)
+        self.pull_server_btn.setStyleSheet(STYLE_PULL_BTN_BUSY)
+        self.pull_server_btn.setText("Checking…")
+
+    def set_pull_progress(self, current: int, total: int):
+        """Show download progress on the pull button itself."""
+        self.pull_server_btn.setEnabled(False)
+        self.pull_server_btn.setStyleSheet(STYLE_PULL_BTN_BUSY)
+        self.pull_server_btn.setText(f"Pulling {current}/{total}")
+
+    def reset_pull_button(self):
+        """Return the pull button to its idle, clickable state."""
+        self.pull_server_btn.setEnabled(True)
+        self.pull_server_btn.setStyleSheet(STYLE_PULL_BTN)
+        self.pull_server_btn.setText(PULL_BTN_IDLE_TEXT)
 
     def set_projects(self, project_names: list):
         """Update the project dropdown with available projects."""

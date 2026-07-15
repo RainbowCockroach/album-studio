@@ -1,14 +1,18 @@
 from typing import Optional
-from PyQt6.QtWidgets import (QWidget, QScrollArea, QGridLayout, QLabel,
-                             QVBoxLayout, QFrame, QApplication,
+from PyQt6.QtWidgets import (QWidget, QLabel, QVBoxLayout, QFrame,
+                             QApplication, QSizePolicy,
                              QGraphicsDropShadowEffect)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QRect, QThread
 from PyQt6.QtGui import QPixmap, QColor
+from .card_grid import CardGrid
 from .crop_overlay import CropOverlay
 from .date_stamp_preview_overlay import DateStampPreviewOverlay
-from src.utils.image_loader import ImageLoader
+from src.utils.image_loader import ImageLoader, open_oriented
 from ..theme import (
-    lighten_color, card_style, STYLE_FILENAME_LABEL, TEXT, TEXT_MUTED,
+    lighten_color, card_style, card_size,
+    STYLE_FILENAME_LABEL, TEXT, TEXT_MUTED,
+    CARD_OBJECT_NAME, CARD_PADDING, CARD_SPACING,
+    CARD_CAPTION_HEIGHT, CARD_TEXT_HEIGHT,
     CARD_PLACEHOLDER_RGB, TAG_DEFAULT_COLOR,
     CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
     CARD_PARTIAL_BG, CARD_PARTIAL_BORDER, CARD_PARTIAL_TEXT,
@@ -52,7 +56,6 @@ class ImageGrid(QWidget):
         self.config = config
         self.current_project = None
         self.thumbnail_size = config.get_setting("thumbnail_size", 200)
-        self.columns = config.get_setting("grid_columns", 5)
         self.image_widgets = {}  # Map ImageItem to ImageWidget
         self.preview_mode = False
         self.date_stamp_preview_mode = False
@@ -67,22 +70,10 @@ class ImageGrid(QWidget):
         layout = QVBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # Create scroll area
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
-
-        # Create grid container
-        self.grid_container = QWidget()
-        self.grid_container.setObjectName("imageGridContainer")
-        self.grid_layout = QGridLayout()
-        self.grid_layout.setSpacing(16)
-        self.grid_layout.setContentsMargins(16, 16, 16, 16)
-        self.grid_container.setLayout(self.grid_layout)
-
-        scroll_area.setWidget(self.grid_container)
-        layout.addWidget(scroll_area)
+        # CardGrid owns the scroll area, the column reflow and the card
+        # placement; ImageGrid only decides what the cards are.
+        self.card_grid = CardGrid(self.thumbnail_size)
+        layout.addWidget(self.card_grid)
 
         self.setLayout(layout)
 
@@ -100,9 +91,7 @@ class ImageGrid(QWidget):
         if not self.current_project:
             return
 
-        row = 0
-        col = 0
-
+        cards = []
         for image_item in self.current_project.images:
             # Create image widget with placeholder (no immediate thumbnail loading)
             image_widget = ImageWidget(image_item, self.thumbnail_size, load_immediately=False, config=self.config)
@@ -111,9 +100,8 @@ class ImageGrid(QWidget):
             image_widget.right_clicked.connect(lambda item=image_item: self.on_image_right_clicked(item))
             image_widget.right_double_clicked.connect(self.on_image_right_double_clicked)
 
-            # Add to grid
-            self.grid_layout.addWidget(image_widget, row, col)
             self.image_widgets[image_item] = image_widget
+            cards.append(image_widget)
 
             # Start background thumbnail loading
             worker = ThumbnailLoaderWorker(image_item, self.thumbnail_size)
@@ -122,11 +110,7 @@ class ImageGrid(QWidget):
             self.thumbnail_workers.append(worker)
             worker.start()
 
-            # Update position
-            col += 1
-            if col >= self.columns:
-                col = 0
-                row += 1
+        self.card_grid.set_cards(cards)
 
     def _on_thumbnail_loaded(self, image_item, pixmap):
         """Handle thumbnail loaded in background thread."""
@@ -147,13 +131,7 @@ class ImageGrid(QWidget):
             worker.wait()
         self.thumbnail_workers.clear()
 
-        while self.grid_layout.count():
-            item = self.grid_layout.takeAt(0)
-            if item:
-                widget = item.widget()
-                if widget:
-                    widget.deleteLater()
-
+        self.card_grid.clear_cards()
         self.image_widgets.clear()
 
     def refresh_display(self):
@@ -221,8 +199,13 @@ class ImageGrid(QWidget):
         if not self.preview_mode and not self.selection_mode:
             self.image_double_clicked.emit(image_item)
 
-    def on_image_right_clicked(self, image_item):
-        """Handle right click on image - select the image."""
+    def set_current_selected_item(self, image_item):
+        """Move the single-selection highlight to ``image_item``, without emitting.
+
+        Split out of ``on_image_right_clicked`` so MainWindow can drive the
+        highlight (e.g. when the image viewer browses to a new photo) without
+        image_selected echoing straight back at it.
+        """
         # Clear previous selection
         if self.current_selected_item and self.current_selected_item in self.image_widgets:
             self.image_widgets[self.current_selected_item].set_current_selected(False)
@@ -231,6 +214,10 @@ class ImageGrid(QWidget):
         self.current_selected_item = image_item
         if image_item in self.image_widgets:
             self.image_widgets[image_item].set_current_selected(True)
+
+    def on_image_right_clicked(self, image_item):
+        """Handle right click on image - select the image."""
+        self.set_current_selected_item(image_item)
 
         # Emit signal for main window
         self.image_selected.emit(image_item)
@@ -331,8 +318,18 @@ class ImageWidget(QFrame):
         self.init_ui()
 
     def init_ui(self):
+        # Named so card_style() can target the card without also styling the
+        # QLabels below it — QLabel is a QFrame, and an unscoped rule hits both.
+        self.setObjectName(CARD_OBJECT_NAME)
+
+        # A fixed card keeps a four-photo project looking like a forty-photo
+        # one; ImageGrid reflows its columns rather than inflating cards.
+        self.setFixedSize(*card_size(self.thumbnail_size))
+        self.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+
         layout = QVBoxLayout()
-        layout.setContentsMargins(10, 10, 10, 10)
+        layout.setContentsMargins(CARD_PADDING, CARD_PADDING, CARD_PADDING, CARD_PADDING)
+        layout.setSpacing(CARD_SPACING)
 
         # Thumbnail
         self.thumbnail_label = QLabel()
@@ -358,12 +355,14 @@ class ImageWidget(QFrame):
         self.filename_label.setWordWrap(True)
         self.filename_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.filename_label.setStyleSheet(STYLE_FILENAME_LABEL)
+        self.filename_label.setFixedHeight(CARD_CAPTION_HEIGHT)
         layout.addWidget(self.filename_label)
 
         # Tag info label
         self.tag_label = QLabel()
         self.tag_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.tag_label.setWordWrap(True)
+        self.tag_label.setFixedHeight(CARD_TEXT_HEIGHT)
         layout.addWidget(self.tag_label)
 
         self.setLayout(layout)
@@ -627,8 +626,9 @@ class ImageWidget(QFrame):
                 self._set_centered_crop()
                 return
 
-            # Load image with PIL
-            img = Image.open(self.image_item.file_path)
+            # Load image with PIL (EXIF orientation applied, to match the
+            # displayed pixmap the overlay is positioned against)
+            img = open_oriented(self.image_item.file_path)
             if img.mode != 'RGB':
                 img = img.convert('RGB')
 

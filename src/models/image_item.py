@@ -1,5 +1,6 @@
 from datetime import datetime
 from typing import Optional
+import math
 import numpy as np
 import os
 import re
@@ -27,7 +28,28 @@ class ImageItem:
         if album is not None:
             self.album_tag = album
         if size is not None:
+            if not self._is_same_ratio(self.size_tag, size):
+                self.crop_box = None
             self.size_tag = size
+
+    @staticmethod
+    def _is_same_ratio(old_size: Optional[str], new_size: str) -> bool:
+        """Whether two size tags name the same aspect ratio.
+
+        Compared by ratio, not tag string: 9x6 and 12x8 are both 3:2, so a crop
+        box drawn against one stays valid for the other. An unparseable tag
+        counts as different — a box that cannot be proven valid must go.
+        """
+        if old_size is None:
+            return False
+        from .config import Config
+        try:
+            return math.isclose(
+                Config.parse_size_ratio(old_size),
+                Config.parse_size_ratio(new_size),
+            )
+        except ValueError:
+            return False
 
     def clear_tags(self):
         """Clear all tags from this image."""

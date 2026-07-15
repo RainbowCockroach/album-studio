@@ -363,8 +363,10 @@ del "%~f0"
             ["cmd", "/c", script_path],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
-            # type: ignore[attr-defined]
-            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+            # Windows-only constants; pyright analyses this file as Darwin, so
+            # each line needs its own suppression to stay off the build check.
+            creationflags=subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+            | subprocess.DETACHED_PROCESS,  # type: ignore[attr-defined]
         )
 
         print(f"[UpdateService] Update script launched: {script_path}")
