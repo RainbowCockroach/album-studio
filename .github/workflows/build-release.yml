@@ -38,9 +38,14 @@ jobs:
       - name: Build macOS app
         run: python build.py macos
 
+      # Must go through build.py: a bare `hdiutil create -srcfolder <app>` ships
+      # the app alone in an empty window with no /Applications symlink to drag it
+      # to. build_dmg() stages that symlink. create-dmg is absent on the runner,
+      # so this takes the plain-image fallback — drag-to-install, default layout.
       - name: Create DMG
         run: |
-          hdiutil create -volname "AlbumStudio" -srcfolder dist/AlbumStudio.app -ov -format UDZO dist/AlbumStudio-macOS.dmg
+          python build.py dmg
+          mv dist/AlbumStudio.dmg dist/AlbumStudio-macOS.dmg
 
       - name: Upload macOS artifact
         uses: actions/upload-artifact@v4
