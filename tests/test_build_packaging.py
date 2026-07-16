@@ -178,6 +178,49 @@ class TestDmg:
         assert not leftover.exists()
 
 
+class TestReleaseWorkflow:
+    """CI must build the DMG through build.py, not by hand.
+
+    Every fix in TestDmg was dead code for months of releases: the workflow
+    called `python build.py macos` and then rolled its own `hdiutil create
+    -srcfolder dist/AlbumStudio.app`, so build_dmg() and its /Applications
+    symlink never ran. Local DMGs were correct and every published one opened
+    as a lone icon with nowhere to drop it.
+    """
+
+    @pytest.fixture
+    def workflow(self):
+        path = REPO_ROOT / ".github" / "workflows" / "build-release.yml"
+        assert path.exists(), "the release workflow moved — update this test"
+        return path.read_text()
+
+    def test_dmg_is_built_through_build_py(self, workflow):
+        assert "python build.py dmg" in workflow, (
+            "the release workflow does not call `build.py dmg`, so build_dmg() "
+            "and the /Applications drop link never run in CI — published DMGs "
+            "cannot be dragged to Applications."
+        )
+
+    def test_workflow_does_not_roll_its_own_hdiutil(self, workflow):
+        # Comments are excluded on purpose: the step is documented by naming the
+        # very command it must not run.
+        commands = "\n".join(
+            line for line in workflow.splitlines() if not line.strip().startswith("#")
+        )
+        assert "hdiutil" not in commands, (
+            "the release workflow calls hdiutil directly. A bare `hdiutil "
+            "create -srcfolder <app>` omits the /Applications symlink. Package "
+            "via `python build.py dmg` instead."
+        )
+
+    def test_uploaded_dmg_is_the_one_build_py_produces(self, build, workflow):
+        # build.py names the image dist/AlbumStudio.dmg; the release asset is
+        # AlbumStudio-macOS.dmg. A rename bridges them — if either name drifts,
+        # the upload step silently ships a stale or missing file.
+        assert build.DMG_PATH == "dist/AlbumStudio.dmg"
+        assert f"mv {build.DMG_PATH} dist/AlbumStudio-macOS.dmg" in workflow
+
+
 def _capture_cmd_allowing_none(build, monkeypatch):
     captured = {}
 
