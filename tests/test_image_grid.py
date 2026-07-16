@@ -12,20 +12,25 @@ from types import SimpleNamespace
 import pytest
 
 from src.models.image_item import ImageItem
-from src.ui.theme import card_size
+from src.ui.theme import (
+    card_size, lighten_color, CARD_BORDER, CARD_UNTAGGED_BG,
+    CARD_RING_CURRENT, CARD_RING_DELETE, CARD_RING_DATESTAMP)
 from src.ui.widgets.image_grid import ImageGrid, ImageWidget
 
 THUMBNAIL_SIZE = 200
 
 
 class StubConfig:
-    """ImageGrid only ever reads ``thumbnail_size`` off the config."""
+    """ImageGrid reads ``thumbnail_size``; ImageWidget asks it for tag colors."""
+
+    def __init__(self, colors=None):
+        self.colors = colors or {}
 
     def get_setting(self, key, default=None):
         return {"thumbnail_size": THUMBNAIL_SIZE}.get(key, default)
 
     def get_size_color(self, size_tag):
-        return None
+        return self.colors.get(size_tag, "")
 
 
 @pytest.fixture
@@ -91,3 +96,88 @@ class TestGridPopulation:
 
         assert grid.card_grid.cards == []
         assert grid.image_widgets == {}
+
+
+TAG_COLOR = "#00e9e2"  # the real stored color for 9x6
+
+
+class TestSelectionRing:
+    """Tag state fills the card; selection rings it — the two must compose.
+
+    The old ``update_border`` let selection repaint the whole card, so a
+    selected card and a tagged card were near-identical pale washes, and
+    selecting (or batch-marking) a tagged card hid which tag it carried.
+    """
+
+    @pytest.fixture
+    def tagged_widget(self, qapp, tmp_path):
+        item = ImageItem(str(tmp_path / "photo.jpg"))
+        item.set_tags(album="A5", size="9x6")
+        widget = ImageWidget(item, THUMBNAIL_SIZE, load_immediately=False,
+                             config=StubConfig(colors={"9x6": TAG_COLOR}))
+        yield widget
+        widget.deleteLater()
+
+    def test_selecting_a_tagged_card_keeps_its_tag_wash(self, tagged_widget):
+        tagged_widget.set_current_selected(True)
+
+        style = tagged_widget.styleSheet()
+        assert lighten_color(TAG_COLOR, 0.82) in style   # fill survives
+        assert f"border: {CARD_BORDER}px solid {CARD_RING_CURRENT}" in style
+
+    def test_selecting_keeps_the_tag_text_and_its_color(self, tagged_widget):
+        tagged_widget.set_current_selected(True)
+
+        assert "A5" in tagged_widget.tag_label.text()
+        assert TAG_COLOR in tagged_widget.tag_label.styleSheet()
+
+    def test_deselecting_restores_the_tag_border(self, tagged_widget):
+        tagged_widget.set_current_selected(True)
+        tagged_widget.set_current_selected(False)
+
+        style = tagged_widget.styleSheet()
+        assert CARD_RING_CURRENT not in style
+        assert lighten_color(TAG_COLOR, 0.45) in style
+
+    def test_browse_selection_is_ring_only(self, tagged_widget):
+        """The ✕/✓ badges carry a batch mode; browse selection has nothing
+        for a glyph to say, so it must not grow a dot."""
+        tagged_widget.set_current_selected(True)
+        assert tagged_widget.badge.isHidden()
+
+    def test_badge_shows_only_while_batch_selected(self, tagged_widget):
+        assert tagged_widget.badge.isHidden()
+
+        tagged_widget.set_selected(True, 'delete')
+        assert not tagged_widget.badge.isHidden()
+
+        tagged_widget.set_selected(False, None)
+        assert tagged_widget.badge.isHidden()
+
+    def test_delete_mode_rings_red_and_keeps_the_tag_visible(self, tagged_widget):
+        tagged_widget.set_selected(True, 'delete')
+
+        assert CARD_RING_DELETE in tagged_widget.styleSheet()
+        assert "A5" in tagged_widget.tag_label.text()  # old code replaced this
+        assert tagged_widget.badge.text() == '✕'
+
+    def test_date_stamp_mode_rings_green(self, tagged_widget):
+        tagged_widget.set_selected(True, 'date_stamp')
+
+        assert CARD_RING_DATESTAMP in tagged_widget.styleSheet()
+        assert tagged_widget.badge.text() == '✓'
+
+    def test_badge_sits_inside_the_fixed_card(self, tagged_widget):
+        """The badge is a raw child widget, so anything hanging past the card
+        rect would be silently clipped rather than drawn."""
+        assert tagged_widget.rect().contains(tagged_widget.badge.geometry())
+
+    def test_untagged_selected_card_rings_over_the_neutral_fill(self, qapp, tmp_path):
+        widget = ImageWidget(ImageItem(str(tmp_path / "p.jpg")), THUMBNAIL_SIZE,
+                             load_immediately=False, config=StubConfig())
+
+        widget.set_current_selected(True)
+
+        style = widget.styleSheet()
+        assert CARD_UNTAGGED_BG in style
+        assert CARD_RING_CURRENT in style

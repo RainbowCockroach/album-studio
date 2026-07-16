@@ -10,10 +10,10 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QLocale, QThread, pyqtSignal
 from PyQt6.QtGui import QPainter, QColor, QPen, QLinearGradient, QBrush
-from src.models.config import generate_random_color
+from src.models.config import auto_tag_color, generate_random_color
 from src.services.date_stamp_service import kelvin_to_rgb
 from src.services.server_sync_service import ServerSyncService
-from src.ui.theme import STYLE_PULL_BTN
+from src.ui.theme import STYLE_PULL_BTN, TAG_DEFAULT_COLOR
 
 
 class TemperatureGradientPreview(QWidget):
@@ -875,7 +875,7 @@ class ConfigDialog(QDialog):
                 size_ratio = size["ratio"]
                 alias = size["alias"]
                 # Get color from global settings (per size ratio, not per group)
-                color = self.config.get_size_color(size_ratio) or "#4CAF50"
+                color = self.config.get_size_color(size_ratio) or TAG_DEFAULT_COLOR
                 # Calculate ratio for display
                 try:
                     ratio = self.config.parse_size_ratio(size_ratio)
@@ -996,7 +996,8 @@ class ConfigDialog(QDialog):
 
             # Auto-assign color if this is a new size ratio (color is global)
             if not self.config.get_size_color(size_ratio):
-                self.config.set_size_color(size_ratio, generate_random_color())
+                self.config.set_size_color(size_ratio, auto_tag_color(
+                    size_ratio, self.config.get_all_size_colors()))
 
             # Add the size (color is stored globally in settings, not here)
             group_data["sizes"].append({"ratio": size_ratio, "alias": alias})
@@ -1086,7 +1087,7 @@ class ConfigDialog(QDialog):
         size_ratio = self._extract_size_ratio_from_display(size_text)
 
         # Get current color from global settings
-        current_color = self.config.get_size_color(size_ratio) or "#4CAF50"
+        current_color = self.config.get_size_color(size_ratio) or TAG_DEFAULT_COLOR
 
         # Open color dialog
         color = QColorDialog.getColor(QColor(current_color), self, f"Pick Color for Size '{size_ratio}'")

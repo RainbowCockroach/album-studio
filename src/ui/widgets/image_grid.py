@@ -9,17 +9,16 @@ from .crop_overlay import CropOverlay
 from .date_stamp_preview_overlay import DateStampPreviewOverlay
 from src.utils.image_loader import ImageLoader, open_oriented
 from ..theme import (
-    lighten_color, card_style, card_size,
-    STYLE_FILENAME_LABEL, TEXT, TEXT_MUTED,
-    CARD_OBJECT_NAME, CARD_PADDING, CARD_SPACING,
+    lighten_color, card_style, card_size, card_badge_style,
+    STYLE_FILENAME_LABEL, TEXT_MUTED,
+    CARD_OBJECT_NAME, CARD_PADDING, CARD_SPACING, CARD_BORDER,
     CARD_CAPTION_HEIGHT, CARD_TEXT_HEIGHT,
     CARD_PLACEHOLDER_RGB, TAG_DEFAULT_COLOR,
     CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
     CARD_PARTIAL_BG, CARD_PARTIAL_BORDER, CARD_PARTIAL_TEXT,
-    CARD_SELECTED_BG, CARD_SELECTED_BORDER,
-    CARD_DELETE_BG, CARD_DELETE_BORDER, CARD_DELETE_TEXT,
-    CARD_DATESTAMP_BG, CARD_DATESTAMP_BORDER, CARD_DATESTAMP_TEXT,
-    CARD_GENERIC_BG, CARD_GENERIC_BORDER, CARD_GENERIC_TEXT,
+    CARD_RING_CURRENT, CARD_RING_DELETE, CARD_RING_DATESTAMP,
+    CARD_RING_GENERIC,
+    CARD_BADGE_OBJECT_NAME, CARD_BADGE_SIZE, CARD_BADGE_MARGIN,
 )
 
 
@@ -367,6 +366,19 @@ class ImageWidget(QFrame):
 
         self.setLayout(layout)
 
+        # Selection badge: floats over the card's top-right corner, shown only
+        # while the card is selected. A raw child, not a layout item, so it
+        # never shifts the fixed card layout. Created after the layout's
+        # widgets so sibling stacking keeps it on top of the thumbnail.
+        self.badge = QLabel(self)
+        self.badge.setObjectName(CARD_BADGE_OBJECT_NAME)
+        self.badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.badge.setFixedSize(CARD_BADGE_SIZE, CARD_BADGE_SIZE)
+        card_width, _ = card_size(self.thumbnail_size)
+        self.badge.move(card_width - CARD_BADGE_SIZE - CARD_BADGE_MARGIN,
+                        CARD_BADGE_MARGIN)
+        self.badge.hide()
+
         # Subtle drop shadow for card depth
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(12)
@@ -416,25 +428,16 @@ class ImageWidget(QFrame):
             self.thumbnail_label.setText("No Image")
 
     def update_border(self):
-        """Update card appearance based on tag status or selection."""
-        # Batch selection mode (delete, date stamp, etc.)
-        if self.is_selected:
-            if self.selection_mode_type == 'delete':
-                bg, border_color = CARD_DELETE_BG, CARD_DELETE_BORDER
-                self.tag_label.setText("Selected for Deletion")
-                self.tag_label.setStyleSheet(f"color: {CARD_DELETE_TEXT}; font-weight: bold;")
-            elif self.selection_mode_type == 'date_stamp':
-                bg, border_color = CARD_DATESTAMP_BG, CARD_DATESTAMP_BORDER
-                self.tag_label.setText("Selected for Date Stamp")
-                self.tag_label.setStyleSheet(f"color: {CARD_DATESTAMP_TEXT}; font-weight: bold;")
-            else:
-                bg, border_color = CARD_GENERIC_BG, CARD_GENERIC_BORDER
-                self.tag_label.setText("Selected")
-                self.tag_label.setStyleSheet(f"color: {CARD_GENERIC_TEXT}; font-weight: bold;")
-            self.setStyleSheet(card_style(bg, border_color, 2))
-            return
+        """Update card appearance from two independent layers.
 
-        # Determine tag text
+        Fill = identity: the tag state colors the background, border and tag
+        text (neutral washes for untagged/partial, the tag's stored color when
+        fully tagged) and never changes while selecting. Ring = action: any
+        selection draws a ``CARD_BORDER``-wide ring plus a corner badge *over*
+        that fill. Selection used to repaint the whole card instead, which
+        made a selected card and a tagged card near-identical pale washes —
+        and hid the tag of whatever was selected.
+        """
         date_stamp_indicator = " 📅" if self.image_item.add_date_stamp else ""
 
         if self.image_item.is_fully_tagged():
@@ -445,17 +448,12 @@ class ImageWidget(QFrame):
             tag_text = "No tags" + date_stamp_indicator
         self.tag_label.setText(tag_text)
 
-        # Determine card style based on state
-        if self.is_current_selected:
-            bg, border_color = CARD_SELECTED_BG, CARD_SELECTED_BORDER
-            self.tag_label.setStyleSheet(f"color: {TEXT};")
-        elif self.image_item.is_fully_tagged():
+        # Fill layer: tag state
+        if self.image_item.is_fully_tagged():
+            size_color = ''
             if self.config and self.image_item.size_tag:
                 size_color = self.config.get_size_color(self.image_item.size_tag)
-                if not size_color:
-                    size_color = TAG_DEFAULT_COLOR
-            else:
-                size_color = TAG_DEFAULT_COLOR
+            size_color = size_color or TAG_DEFAULT_COLOR
             bg = lighten_color(size_color, 0.82)
             border_color = lighten_color(size_color, 0.45)
             self.tag_label.setStyleSheet(f"color: {size_color}; font-weight: bold;")
@@ -466,7 +464,29 @@ class ImageWidget(QFrame):
             bg, border_color = CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER
             self.tag_label.setStyleSheet(f"color: {TEXT_MUTED};")
 
-        self.setStyleSheet(card_style(bg, border_color))
+        # Ring layer: selection overrides only the border, never the fill.
+        # Batch marks carry a ✕/✓ badge; browse selection is the ring alone —
+        # there is nothing for a glyph to say there.
+        if self.is_selected:
+            ring, glyph = {
+                'delete': (CARD_RING_DELETE, '✕'),
+                'date_stamp': (CARD_RING_DATESTAMP, '✓'),
+            }.get(self.selection_mode_type or '', (CARD_RING_GENERIC, '●'))
+        elif self.is_current_selected:
+            ring, glyph = CARD_RING_CURRENT, ''
+        else:
+            ring, glyph = '', ''
+
+        if ring:
+            self.setStyleSheet(card_style(bg, ring, CARD_BORDER))
+        else:
+            self.setStyleSheet(card_style(bg, border_color))
+        if glyph:
+            self.badge.setText(glyph)
+            self.badge.setStyleSheet(card_badge_style(ring))
+            self.badge.show()
+        else:
+            self.badge.hide()
 
     def _handle_single_click(self):
         """Handle single click after delay (if not double-clicked)."""

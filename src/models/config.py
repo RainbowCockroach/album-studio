@@ -7,13 +7,58 @@ from typing import Dict, List, Optional
 from ..utils.paths import get_config_dir, get_user_config_dir
 
 
+# The curated tag palette. Muted, mid-lightness hues so a tag's color works
+# as bold text on its own pale wash (theme.lighten_color of the same hex) —
+# the old fully-random colors produced neon like #00e9e2, unreadable as text
+# on a #00e9e2-tinted card. Red, green and orange are deliberately absent:
+# those hues are the selection/delete/date-stamp "lamps" in src/ui/theme.py.
+# Tag colors live here rather than in theme.py because Config *persists* them
+# per size ratio (user data, editable in the config dialog); theme.py only
+# derives washes from whatever is stored.
+TAG_COLOR_PALETTE = [
+    '#2f7d6d',  # teal
+    '#b05572',  # rose
+    '#3e6b9e',  # denim
+    '#7d5185',  # plum
+    '#77802e',  # olive
+    '#5a5f9e',  # indigo
+    '#5f6b7d',  # slate
+    '#85583c',  # cocoa
+]
+
+
 def generate_random_color() -> str:
-    """Generate a random saturated color as hex string."""
+    """Generate a random color in the tag palette's register.
+
+    Overflow for when every curated color is taken, and the config dialog's
+    "random color" button. Muted saturation and mid lightness keep even a
+    random pick readable as text on its own pale wash.
+    """
     h = random.random()
-    s = 0.6 + random.random() * 0.4  # 60-100% saturation
-    v = 0.7 + random.random() * 0.2  # 70-90% brightness
+    s = 0.35 + random.random() * 0.2  # 35-55% saturation
+    v = 0.50 + random.random() * 0.15  # 50-65% brightness
     r, g, b = colorsys.hsv_to_rgb(h, s, v)
     return f"#{int(r * 255):02x}{int(g * 255):02x}{int(b * 255):02x}"
+
+
+def auto_tag_color(size_ratio: str, existing: Dict[str, str]) -> str:
+    """Pick the color for a size ratio that doesn't have one yet.
+
+    A rotated ratio (``15x10`` vs ``10x15``) is the same physical paper, so it
+    inherits its twin's color — the color encodes the print size, not the
+    orientation, which the photo itself already shows. Otherwise the first
+    palette color not yet in use, then random-muted overflow.
+    """
+    match = re.fullmatch(r"(\d+)x(\d+)", size_ratio)
+    if match:
+        twin = existing.get(f"{match.group(2)}x{match.group(1)}")
+        if twin:
+            return twin
+    used = {c.lower() for c in existing.values()}
+    for color in TAG_COLOR_PALETTE:
+        if color not in used:
+            return color
+    return generate_random_color()
 
 
 class Config:
@@ -214,7 +259,8 @@ class Config:
 
         # Auto-assign color if this is a new size ratio (not seen before)
         if not self.get_size_color(size_ratio):
-            self.set_size_color(size_ratio, generate_random_color())
+            self.set_size_color(
+                size_ratio, auto_tag_color(size_ratio, self.get_all_size_colors()))
 
         # Add the size (color is stored globally in settings, not here)
         group_data["sizes"].append({
@@ -315,11 +361,14 @@ class Config:
             for ratio, color in legacy_colors.items():
                 metadata.setdefault(ratio, {}).setdefault("color", color)
 
-        # Auto-assign a color for any size that doesn't have one
-        for ratio in seen_ratios:
+        # Auto-assign a color for any size that doesn't have one. Sorted, so a
+        # fresh install deals the curated palette out deterministically.
+        for ratio in sorted(seen_ratios):
             entry = metadata.setdefault(ratio, {})
             if not entry.get("color"):
-                entry["color"] = generate_random_color()
+                entry["color"] = auto_tag_color(
+                    ratio,
+                    {r: m["color"] for r, m in metadata.items() if m.get("color")})
 
         return groups, metadata
 

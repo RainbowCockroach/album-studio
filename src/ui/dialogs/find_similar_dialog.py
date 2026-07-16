@@ -9,7 +9,7 @@ from ...services.image_similarity_service import SimilaritySearchWorker
 from ..theme import (
     card_size, card_style, CARD_CAPTION_HEIGHT, CARD_OBJECT_NAME,
     CARD_PADDING, CARD_SPACING, CARD_TEXT_HEIGHT,
-    CARD_SELECTED_BG, CARD_SELECTED_BORDER,
+    CARD_HOVER_BG, CARD_HOVER_BORDER,
     CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
     STYLE_FILENAME_LABEL, STYLE_READONLY_FIELD, STYLE_STATUS_LABEL, TEXT_MUTED)
 from ..widgets.card_grid import CardGrid
@@ -107,7 +107,7 @@ class ImageThumbnail(QFrame):
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet(card_style(
             CARD_UNTAGGED_BG, CARD_UNTAGGED_BORDER,
-            hover_bg=CARD_SELECTED_BG, hover_border=CARD_SELECTED_BORDER))
+            hover_bg=CARD_HOVER_BG, hover_border=CARD_HOVER_BORDER))
 
     def mousePressEvent(self, event):
         """Handle mouse click."""

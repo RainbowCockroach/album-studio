@@ -77,7 +77,7 @@ CARD_PLACEHOLDER_RGB = (200, 196, 190)
 # row, the results dialog puts the score in the text row and the filename in
 # the caption.
 CARD_OBJECT_NAME = 'imageCard'
-CARD_BORDER = 2       # widest border any card state draws — always reserved
+CARD_BORDER = 3       # widest border any card state draws (the selection ring) — always reserved
 CARD_PADDING = 10
 CARD_SPACING = 6
 CARD_CAPTION_HEIGHT = 30   # up to two 11px lines
@@ -94,50 +94,61 @@ CARD_PARTIAL_BG = '#fdf5e6'
 CARD_PARTIAL_BORDER = '#e0c890'
 CARD_PARTIAL_TEXT = '#a07020'
 
-CARD_SELECTED_BG = '#e3edf8'
-CARD_SELECTED_BORDER = '#90b0d8'
+# Hover tint for cards that are clickable one-offs (the similar-results
+# dialog). Amber-tinted to match the selection lamp below. The main grid's
+# selection deliberately does not fill — see the ring constants.
+CARD_HOVER_BG = '#f5e6dd'
+CARD_HOVER_BORDER = '#dca483'
 
-CARD_DELETE_BG = '#f8e0e0'
-CARD_DELETE_BORDER = '#d08080'
-CARD_DELETE_TEXT = '#b03030'
+# Selection is a *ring*, never a fill. The tag's color fills the card
+# (identity, persistent); selection draws a CARD_BORDER-wide ring over that
+# fill (action, transient), so a selected card keeps showing what it is.
+# The rings are the app's "indicator lamps": burnt amber for browsing —
+# unmistakably interactive on the beige chassis, and a hue the tag palette
+# (models/config.py TAG_COLOR_PALETTE) deliberately never uses — with brick
+# and moss reserved for the two batch modes, matching their buttons. Batch
+# rings also get a corner badge, since ✕/✓ carry the mode; browse selection
+# is the ring alone.
+CARD_RING_CURRENT = '#c05a1e'      # amber — right-click browse selection
+CARD_RING_DELETE = '#a8402f'       # brick
+CARD_RING_DATESTAMP = '#3f7d43'    # moss
+CARD_RING_GENERIC = '#5f6b7d'      # slate
 
-CARD_DATESTAMP_BG = '#e0f0e0'
-CARD_DATESTAMP_BORDER = '#80b080'
-CARD_DATESTAMP_TEXT = '#308030'
+CARD_BADGE_OBJECT_NAME = 'cardBadge'
+CARD_BADGE_SIZE = 22    # round, so radius is half this
+CARD_BADGE_MARGIN = 4   # inset from the card's top-right corner
 
-CARD_GENERIC_BG = '#e0e8f0'
-CARD_GENERIC_BORDER = '#8098b8'
-CARD_GENERIC_TEXT = '#305080'
-
-TAG_DEFAULT_COLOR = '#4CAF50'
+TAG_DEFAULT_COLOR = '#2f7d6d'      # TAG_COLOR_PALETTE's teal
 
 # --- Action button colors ---
-DELETE_BTN_BG = '#e8b0b0'
-DELETE_BTN_TEXT = '#8b0000'
-DELETE_BTN_PRESSED = '#d09898'
-DELETE_BTN_HOVER = '#f0bebe'
+# Tints of the ring lamps above (delete ↔ brick, date stamp ↔ moss) and the
+# tag palette's denim, so the chrome and the cards share one register.
+DELETE_BTN_BG = '#e0b3a9'
+DELETE_BTN_TEXT = '#7d2c1f'
+DELETE_BTN_PRESSED = '#c99e92'
+DELETE_BTN_HOVER = '#eac2b9'
 
-SELECT_BTN_BG = '#b8d0e8'
-SELECT_BTN_PRESSED = '#a0b8d0'
-SELECT_BTN_HOVER = '#c8daf0'
+SELECT_BTN_BG = '#b7c9dc'
+SELECT_BTN_PRESSED = '#9fb3c9'
+SELECT_BTN_HOVER = '#c7d7e8'
 
-DATESTAMP_BTN_BG = '#b0d8b0'
-DATESTAMP_BTN_TEXT = '#1a6b1a'
-DATESTAMP_BTN_PRESSED = '#98c098'
-DATESTAMP_BTN_HOVER = '#c0e8c0'
+DATESTAMP_BTN_BG = '#b7d2b2'
+DATESTAMP_BTN_TEXT = '#2d5c31'
+DATESTAMP_BTN_PRESSED = '#a1bd9c'
+DATESTAMP_BTN_HOVER = '#c6dfc1'
 
-UPDATE_BTN_BG = '#4CAF50'
-UPDATE_BTN_PRESSED = '#3d9142'
-UPDATE_BTN_HOVER = '#45a049'
+UPDATE_BTN_BG = '#4f8a55'
+UPDATE_BTN_PRESSED = '#427448'
+UPDATE_BTN_HOVER = '#579760'
 
-CANCEL_BTN_BG = '#e0c860'
-CANCEL_BTN_PRESSED = '#c8b050'
-CANCEL_BTN_HOVER = '#e8d070'
+CANCEL_BTN_BG = '#dcc06a'
+CANCEL_BTN_PRESSED = '#c3a854'
+CANCEL_BTN_HOVER = '#e5cf85'
 
-PULL_BTN_BG = '#b0c4d8'
-PULL_BTN_TEXT = '#1a3a5a'
-PULL_BTN_PRESSED = '#98acc0'
-PULL_BTN_HOVER = '#c0d4e8'
+PULL_BTN_BG = '#b3c4d8'
+PULL_BTN_TEXT = '#26415f'
+PULL_BTN_PRESSED = '#9cb0c5'
+PULL_BTN_HOVER = '#c3d4e7'
 
 
 # =====================================================================
@@ -179,6 +190,21 @@ def card_style(bg: str, border_color: str, border_width: int = 1,
             f"border-radius: {CARD_RADIUS}px; }}"
         )
     return style
+
+
+def card_badge_style(bg: str) -> str:
+    """Stylesheet for the round selection badge pinned to a card's corner.
+
+    Scoped to the badge's object name so the rule survives sitting inside a
+    card whose own stylesheet is scoped to ``CARD_OBJECT_NAME``, and so it
+    overrides the global ``QLabel { background: transparent }``.
+    """
+    return (
+        f"QLabel#{CARD_BADGE_OBJECT_NAME} {{ background-color: {bg}; "
+        f"color: {HEADER_TEXT}; border: 2px solid {BTN_BORDER}; "
+        f"border-radius: {CARD_BADGE_SIZE // 2}px; "
+        f"font-size: 11px; font-weight: bold; }}"
+    )
 
 
 def card_size(thumbnail_size: int) -> tuple[int, int]:

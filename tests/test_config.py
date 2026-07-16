@@ -2,7 +2,8 @@
 
 import pytest
 
-from src.models.config import Config, generate_random_color
+from src.models.config import (
+    Config, TAG_COLOR_PALETTE, auto_tag_color, generate_random_color)
 
 
 # --------------------------------------------------------------- size parsing
@@ -46,6 +47,35 @@ def test_generate_random_color_is_hex():
     assert color.startswith("#")
     assert len(color) == 7
     int(color[1:], 16)  # parses as hex → no exception
+
+
+class TestAutoTagColor:
+    """New sizes draw from the curated palette instead of random neon, and a
+    rotated ratio is the same physical paper so it inherits its twin's color."""
+
+    def test_first_color_comes_from_the_palette(self):
+        assert auto_tag_color("9x6", {}) == TAG_COLOR_PALETTE[0]
+
+    def test_used_palette_colors_are_skipped(self):
+        existing = {"9x6": TAG_COLOR_PALETTE[0]}
+        assert auto_tag_color("5x7", existing) == TAG_COLOR_PALETTE[1]
+
+    def test_rotated_ratio_shares_its_twins_color(self):
+        existing = {"15x10": "#123456"}
+        assert auto_tag_color("10x15", existing) == "#123456"
+
+    def test_exhausted_palette_falls_back_to_a_random_color(self):
+        existing = {f"1x{i}": c for i, c in enumerate(TAG_COLOR_PALETTE)}
+        color = auto_tag_color("9x6", existing)
+        assert color.startswith("#") and len(color) == 7
+
+    def test_migration_assigns_palette_colors(self, make_config):
+        cfg = make_config(user_size_group={"A4": ["9x6", "6x9", "5x7"]})
+        # 9x6 and 6x9 are the same paper rotated → one shared color
+        assert cfg.get_size_color("9x6") == cfg.get_size_color("6x9")
+        assert cfg.get_size_color("9x6") in TAG_COLOR_PALETTE
+        assert cfg.get_size_color("5x7") in TAG_COLOR_PALETTE
+        assert cfg.get_size_color("5x7") != cfg.get_size_color("9x6")
 
 
 # --------------------------------------------------------------- settings merge
