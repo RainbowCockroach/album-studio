@@ -11,3 +11,5 @@ pillow-heif==0.21.0
 torch==2.14.1
 torchvision==0.29.1
 numpy==2.5.4
+# Root certificates for HTTPS; see src/utils/ssl_certs.py.
+certifi==2026.10.18

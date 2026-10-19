@@ -18,6 +18,10 @@ def ensure_std_streams():
 
 ensure_std_streams()
 
+# Before any HTTPS call: a fresh Windows lacks roots Python never asks for.
+from .utils.ssl_certs import use_bundled_ca_certs  # noqa: E402
+use_bundled_ca_certs()
+
 # Before any PyQt6 import, or Qt's old C++ runtime breaks torch on Windows.
 from .utils.msvc_runtime import preload_msvc_runtime
 preload_msvc_runtime()
@@ -31,6 +35,13 @@ from .utils.paths import get_assets_dir
 
 def main():
     """Entry point for Album Studio application."""
+    # Headless check of the packaged app; see src/self_test.py. No window, and
+    # PyQt6 is already loaded above, so torch loads in the same order as when
+    # the button is clicked.
+    if len(sys.argv) >= 4 and sys.argv[1] == "--self-test":
+        from .self_test import run_self_test
+        sys.exit(run_self_test(sys.argv[2], sys.argv[3]))
+
     app = QApplication(sys.argv)
     app.setApplicationName("Album Studio")
 

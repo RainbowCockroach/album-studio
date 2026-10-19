@@ -93,6 +93,7 @@ def build_windows():
         bundle, os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32'))
     check_bundled_msvc_runtime(bundle)
     check_bundled_torchvision_ops(f'dist/{APP_NAME}/_internal/torchvision')
+    check_bundled_ca_certs(f'dist/{APP_NAME}/_internal')
     print(f"\n[OK] Windows build complete! Check dist/{APP_NAME}/")
 
 
@@ -131,6 +132,19 @@ def check_bundled_torchvision_ops(torchvision_dir):
               "update TORCHVISION_EXTENSION in build.py.")
         sys.exit(1)
     print(f"[OK] Bundled torchvision extension {found[0].name}")
+
+
+def check_bundled_ca_certs(bundle_dir):
+    """Abort if certifi's root certificates are missing from the bundle.
+
+    Without them a fresh Windows fails every HTTPS call the app makes (model
+    download, update check, Pull from Server) — see src/utils/ssl_certs.py.
+    """
+    pem = Path(bundle_dir) / 'certifi' / 'cacert.pem'
+    if not pem.exists():
+        print(f"\n[ERROR] {pem} is missing: HTTPS would fail on a fresh Windows.")
+        sys.exit(1)
+    print("[OK] Bundled certifi root certificates")
 
 
 def dll_file_version(path):

@@ -306,6 +306,13 @@ class TestWindowsInstaller:
         assert "--hidden-import=torchvision._C_stable" in _capture_cmd(
             build, monkeypatch, builder)
 
+    def test_missing_ca_certs_abort(self, build, tmp_path):
+        with pytest.raises(SystemExit):
+            build.check_bundled_ca_certs(str(tmp_path))
+        (tmp_path / "certifi").mkdir()
+        (tmp_path / "certifi" / "cacert.pem").write_text("")
+        build.check_bundled_ca_certs(str(tmp_path))
+
     def test_missing_torchvision_extension_aborts(self, build, tmp_path):
         with pytest.raises(SystemExit):
             build.check_bundled_torchvision_ops(str(tmp_path))
