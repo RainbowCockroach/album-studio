@@ -81,18 +81,29 @@ jobs:
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Build Windows app
+      # build.py aborts without Inno Setup rather than shipping a release with
+      # no installer. choco is a no-op if the runner image already has it.
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      # Builds the app into dist/AlbumStudio/, then the installer from it.
+      - name: Build Windows app and installer
         run: python build.py windows
 
-      - name: Create ZIP archive
+      # Both release files go side by side in dist/: an artifact uploaded from
+      # two folders keeps them, and the release step expects artifacts/<file>.
+      - name: Create portable ZIP and collect installer
         run: |
-          Compress-Archive -Path dist/AlbumStudio/* -DestinationPath dist/AlbumStudio-Windows.zip
+          Compress-Archive -Path dist/AlbumStudio/* -DestinationPath dist/AlbumStudio-Windows-Portable.zip
+          Move-Item installer_output/AlbumStudio-Windows-Setup.exe dist/
 
-      - name: Upload Windows artifact
+      - name: Upload Windows artifacts
         uses: actions/upload-artifact@v4
         with:
           name: AlbumStudio-Windows
-          path: dist/AlbumStudio-Windows.zip
+          path: |
+            dist/AlbumStudio-Windows-Portable.zip
+            dist/AlbumStudio-Windows-Setup.exe
           retention-days: 5
 
   release:
@@ -137,10 +148,15 @@ jobs:
 
             ### Downloads
             - **macOS:** `AlbumStudio-macOS.dmg` - Double-click to mount, drag to Applications
-            - **Windows:** `AlbumStudio-Windows.zip` - Extract and run `AlbumStudio.exe`
+            - **Windows (installer):** `AlbumStudio-Windows-Setup.exe` - Run it; adds Album Studio to the Start Menu and Settings > Apps. Unsigned, so SmartScreen asks first: click **More info > Run anyway**.
+            - **Windows (portable):** `AlbumStudio-Windows-Portable.zip` - Extract anywhere and run `AlbumStudio.exe`; nothing is installed
+          # Keep the zip listed before the installer. Copies released before the
+          # installer existed pick the first asset whose name contains
+          # "windows", and they can only update from a zip.
           files: |
             artifacts/AlbumStudio-macOS.dmg
-            artifacts/AlbumStudio-Windows.zip
+            artifacts/AlbumStudio-Windows-Portable.zip
+            artifacts/AlbumStudio-Windows-Setup.exe
           draft: false
           prerelease: false
 

@@ -133,6 +133,70 @@ pyinstaller ^
    - Executable: `dist\AlbumStudio\AlbumStudio.exe`
    - Supporting files: All files in `dist\AlbumStudio\` folder
 
+4. **Create the installer (Inno Setup):**
+
+`python build.py windows` runs PyInstaller *and* then compiles the committed
+`installer.iss`, producing `installer_output\AlbumStudio-Windows-Setup.exe`.
+`python build.py installer` re-runs only the installer step. Install Inno Setup 6
+first (https://jrsoftware.org/isinfo.php or `choco install innosetup`) — the
+build **aborts** without it rather than skipping, so CI cannot quietly ship a
+release with no installer.
+
+What the installer does:
+- Installs per-user into `%LOCALAPPDATA%\Programs\AlbumStudio` — no admin prompt.
+- Adds a Start Menu entry, an optional desktop icon, and an entry in
+  **Settings > Apps** with an uninstaller.
+- On upgrade, deletes the old `_internal\` folder first, so libraries from
+  dropped dependencies do not linger.
+- Leaves user data in `%APPDATA%\AlbumStudio` alone, so settings and projects
+  survive reinstalling and uninstalling.
+
+`build.py` passes the version from `src/version.py` as `/DMyAppVersion=...`;
+the `1.0.0` in `installer.iss` is only a fallback for a bare `ISCC` run.
+
+The release ships two Windows files: `AlbumStudio-Windows-Setup.exe` and
+`AlbumStudio-Windows-Portable.zip` (the plain `dist\AlbumStudio\` folder).
+The in-app updater keeps each copy on its own kind: an installed copy (one with
+`unins000.exe` beside it) re-runs Setup silently, while a portable copy unzips
+over itself. Both are unsigned, so SmartScreen asks first: **More info > Run anyway**.
+Guarded by `tests/test_build_packaging.py::TestWindowsInstaller` and
+`tests/test_update_service.py`.
+
+5. **Code Signing (Optional but recommended):**
+```bash
+# Sign the app
+codesign --deep --force --verify --verbose --sign "Developer ID Application: Your Name" dist/AlbumStudio.app
+
+# Verify signature
+codesign --verify --deep --strict --verbose=2 dist/AlbumStudio.app
+
+# Notarize with Apple (required for Gatekeeper)
+xcrun notarytool submit dist/AlbumStudio.dmg --apple-id your@email.com --password app-specific-password --team-id TEAMID
+```
+
+### Building for Windows
+
+1. **Install PyInstaller:**
+```cmd
+pip install pyinstaller
+```
+
+2. **Build the application:**
+```cmd
+pyinstaller ^
+    --name=AlbumStudio ^
+    --windowed ^
+    --onedir ^
+    --icon=assets/icon.ico ^
+    --add-data=config;config ^
+    --noconfirm ^
+    run.py
+```
+
+3. **Output:**
+   - Executable: `dist\AlbumStudio\AlbumStudio.exe`
+   - Supporting files: All files in `dist\AlbumStudio\` folder
+
 4. **Create Installer with Inno Setup (Optional):**
 
 Create `installer.iss`:
@@ -299,13 +363,12 @@ dist\AlbumStudio\AlbumStudio.exe
 
 ### Windows
 
-**Option 1: Installer (Recommended)**
-- Create installer with Inno Setup or NSIS
-- Upload .exe installer to website or GitHub releases
+**Option 1: Installer (Recommended)** — what the release workflow ships
+- `AlbumStudio-Windows-Setup.exe`, built by `python build.py windows`
 
-**Option 2: Portable ZIP**
-- Zip the entire `dist\AlbumStudio\` folder
-- Users extract and run
+**Option 2: Portable ZIP** — also shipped by the release workflow
+- `AlbumStudio-Windows-Portable.zip`: the `dist\AlbumStudio\` folder, zipped
+- Users extract and run; nothing is installed
 
 **Option 3: Microsoft Store**
 - Requires Windows Developer account ($19 one-time)

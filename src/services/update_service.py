@@ -3,6 +3,7 @@ Auto-update service for Album Studio.
 Checks GitHub releases and handles downloading/installing updates.
 """
 
+import glob
 import json
 import os
 import sys
@@ -122,7 +123,15 @@ class UpdateService:
         if system == "darwin":
             patterns = [".dmg", "macos", "mac", "osx"]
         elif system == "windows":
-            patterns = [".zip", "windows", "win"]
+            # A Windows release carries both a Setup.exe and a portable zip.
+            # Each copy must update with its own kind: unzipping over an
+            # installed copy leaves its uninstall entry on the old version, and
+            # running Setup from a portable folder installs a second copy.
+            # No loose fallback here — "windows" matches both files.
+            if self._is_installed_windows():
+                patterns = ["setup.exe"]
+            else:
+                patterns = ["portable.zip"]
         else:
             # Linux or other - try generic patterns
             patterns = [".tar.gz", "linux", system]
@@ -135,10 +144,21 @@ class UpdateService:
                     return asset
 
         # Fallback: return first asset if only one exists
-        if len(assets) == 1:
+        if len(assets) == 1 and system != "windows":
             return assets[0]
 
         return None
+
+    @staticmethod
+    def _is_installed_windows(app_dir: Optional[str] = None) -> bool:
+        """True when this copy was put there by the Inno Setup installer.
+
+        Inno leaves its uninstaller (unins000.exe) beside the app; a portable
+        copy unzipped by hand never has one.
+        """
+        if app_dir is None:
+            app_dir = os.path.dirname(sys.executable)
+        return bool(glob.glob(os.path.join(app_dir, "unins*.exe")))
 
     def download_update(
         self,
@@ -314,7 +334,7 @@ rm -f "$0"
         print(f"[UpdateService] Update script launched: {script_path}")
         return True
 
-    def _install_windows(self, zip_path: str) -> bool:
+    def _install_windows(self, download_path: str) -> bool:
         """Install update on Windows."""
 
         # Get current app location
@@ -328,32 +348,10 @@ rm -f "$0"
         # Create update script (batch file)
         script_path = os.path.join(tempfile.gettempdir(), "album_studio_update.bat")
 
-        # Extract to temp first
-        extract_dir = os.path.join(tempfile.gettempdir(), "AlbumStudio_Update_Extract")
-
-        script_content = f'''@echo off
-echo Album Studio Update Script
-echo.
-
-echo Waiting for Album Studio to close...
-timeout /t 3 /nobreak > nul
-
-echo Extracting update...
-powershell -Command "Expand-Archive -Path '{zip_path}' -DestinationPath '{extract_dir}' -Force"
-
-echo Installing update...
-xcopy /E /Y /Q "{extract_dir}\\AlbumStudio\\*" "{app_dir}\\"
-
-echo Cleaning up...
-rmdir /S /Q "{extract_dir}"
-del "{zip_path}"
-
-echo Launching Album Studio...
-start "" "{app_exe}"
-
-echo Update complete!
-del "%~f0"
-'''
+        if download_path.lower().endswith(".exe"):
+            script_content = self._windows_setup_script(download_path, app_exe)
+        else:
+            script_content = self._windows_zip_script(download_path, app_dir, app_exe)
 
         with open(script_path, "w") as f:
             f.write(script_content)
@@ -371,6 +369,70 @@ del "%~f0"
 
         print(f"[UpdateService] Update script launched: {script_path}")
         return True
+
+    @staticmethod
+    def _windows_setup_script(setup_path: str, app_exe: str) -> str:
+        """Batch script that upgrades an installed copy by re-running Setup.
+
+        Setup finds the previous install by its AppId and upgrades it in place,
+        keeping the Start Menu entry and the uninstaller in step. A silent
+        install skips Setup's own "Launch" step, so the script relaunches.
+        """
+        return f'''@echo off
+echo Album Studio Update Script
+echo.
+
+echo Waiting for Album Studio to close...
+timeout /t 3 /nobreak > nul
+
+echo Installing update...
+start "" /wait "{setup_path}" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS
+
+echo Cleaning up...
+del "{setup_path}"
+
+echo Launching Album Studio...
+start "" "{app_exe}"
+
+echo Update complete!
+del "%~f0"
+'''
+
+    @staticmethod
+    def _windows_zip_script(zip_path: str, app_dir: str, app_exe: str) -> str:
+        """Batch script that updates a portable copy by unzipping over it.
+
+        The release zip holds the app files at its top level (CI zips
+        dist/AlbumStudio/*, not the folder), so they are copied from the
+        extract root. Copying from an AlbumStudio\\ subfolder found nothing,
+        and the old version relaunched as if updated.
+        """
+        # Extract to temp first
+        extract_dir = os.path.join(tempfile.gettempdir(), "AlbumStudio_Update_Extract")
+
+        return f'''@echo off
+echo Album Studio Update Script
+echo.
+
+echo Waiting for Album Studio to close...
+timeout /t 3 /nobreak > nul
+
+echo Extracting update...
+powershell -Command "Expand-Archive -Path '{zip_path}' -DestinationPath '{extract_dir}' -Force"
+
+echo Installing update...
+xcopy /E /Y /Q "{extract_dir}\\*" "{app_dir}\\"
+
+echo Cleaning up...
+rmdir /S /Q "{extract_dir}"
+del "{zip_path}"
+
+echo Launching Album Studio...
+start "" "{app_exe}"
+
+echo Update complete!
+del "%~f0"
+'''
 
     def get_current_version(self) -> str:
         """Get the current application version."""

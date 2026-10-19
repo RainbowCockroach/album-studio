@@ -5,6 +5,7 @@ Creates standalone executables for macOS and Windows
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -35,7 +36,7 @@ def require_icon(path):
 
 def clean_build_folders():
     """Remove old build artifacts."""
-    folders = ['build', 'dist']
+    folders = ['build', 'dist', 'installer_output']
     for folder in folders:
         if os.path.exists(folder):
             print(f"Cleaning {folder}/...")
@@ -162,29 +163,57 @@ def build_dmg():
     print("Unsigned: first launch needs right-click > Open to pass Gatekeeper.")
 
 
-def build_installer():
-    """Build Windows installer using Inno Setup after PyInstaller."""
-    print("\n=== Building Windows Installer ===\n")
+INSTALLER_PATH = 'installer_output/AlbumStudio-Windows-Setup.exe'
 
-    iscc = None
+
+def read_app_version():
+    """Return __version__ from src/version.py without importing the app.
+
+    CI rewrites that line with the build number before building, so this is the
+    version the installer must register — or every install shows up in
+    Settings > Apps as installer.iss's placeholder 1.0.0.
+    """
+    text = Path('src/version.py').read_text()
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if match is None:
+        print("[ERROR] Could not find __version__ in src/version.py")
+        sys.exit(1)
+    return match.group(1)
+
+
+def find_iscc():
+    """Locate Inno Setup's compiler, or None."""
     for path in [
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         r"C:\Program Files\Inno Setup 6\ISCC.exe",
     ]:
         if os.path.exists(path):
-            iscc = path
-            break
+            return path
+    return shutil.which("ISCC")
 
+
+def build_installer():
+    """Build Windows installer using Inno Setup after PyInstaller.
+
+    A missing Inno Setup aborts rather than skipping: a skip exits 0, so CI
+    would publish a release with no installer and nobody would notice.
+    """
+    print("\n=== Building Windows Installer ===\n")
+
+    iscc = find_iscc()
     if iscc is None:
-        iscc = shutil.which("ISCC")
+        print("[ERROR] Inno Setup not found — cannot build the installer.")
+        print("        Download from: https://jrsoftware.org/isinfo.php")
+        print("        (or: choco install innosetup)")
+        sys.exit(1)
 
-    if iscc is None:
-        print("[SKIP] Inno Setup not found. Skipping installer creation.")
-        print("       Download from: https://jrsoftware.org/isinfo.php")
-        return
+    if not os.path.exists(f'dist/{APP_NAME}/{APP_NAME}.exe'):
+        print(f"[ERROR] dist/{APP_NAME}/ not found. Run: python build.py windows")
+        sys.exit(1)
 
-    subprocess.run([iscc, 'installer.iss'], check=True)
-    print("\n[OK] Installer created: installer_output/AlbumStudio_Setup.exe")
+    version = read_app_version()
+    subprocess.run([iscc, f'/DMyAppVersion={version}', 'installer.iss'], check=True)
+    print(f"\n[OK] Installer created: {INSTALLER_PATH} (version {version})")
 
 
 def build_spec_file():

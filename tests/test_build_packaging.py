@@ -221,6 +221,84 @@ class TestReleaseWorkflow:
         assert f"mv {build.DMG_PATH} dist/AlbumStudio-macOS.dmg" in workflow
 
 
+
+class TestWindowsInstaller:
+    """The Setup.exe must actually be built, and carry the real version."""
+
+    @pytest.fixture
+    def built_app(self, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "dist" / "AlbumStudio").mkdir(parents=True)
+        (tmp_path / "dist" / "AlbumStudio" / "AlbumStudio.exe").write_text("")
+        (tmp_path / "src").mkdir()
+        (tmp_path / "src" / "version.py").write_text(
+            '__version_base__ = "1.4"\n__version__ = "1.4.87"\n')
+
+    def test_missing_inno_setup_aborts(self, build, monkeypatch, built_app):
+        # It used to print [SKIP] and exit 0, so CI would publish a release
+        # with no installer in it.
+        monkeypatch.setattr(build, "find_iscc", lambda: None)
+        with pytest.raises(SystemExit):
+            build.build_installer()
+
+    def test_aborts_when_the_app_was_never_built(self, build, tmp_path, monkeypatch):
+        monkeypatch.chdir(tmp_path)
+        monkeypatch.setattr(build, "find_iscc", lambda: "ISCC.exe")
+        with pytest.raises(SystemExit):
+            build.build_installer()
+
+    def test_passes_the_app_version_to_inno(self, build, monkeypatch, built_app):
+        # Without it every install registers as installer.iss's placeholder.
+        monkeypatch.setattr(build, "find_iscc", lambda: "ISCC.exe")
+        calls = []
+        monkeypatch.setattr(build.subprocess, "run", lambda cmd, **_kw: calls.append(cmd))
+        build.build_installer()
+        assert calls == [["ISCC.exe", "/DMyAppVersion=1.4.87", "installer.iss"]]
+
+    def test_iss_lets_the_version_be_overridden(self):
+        iss = (REPO_ROOT / "installer.iss").read_text()
+        assert "#ifndef MyAppVersion" in iss, (
+            "a plain #define in installer.iss overrides nothing: /DMyAppVersion "
+            "is ignored and every build ships as the hardcoded version"
+        )
+
+    def test_iss_output_name_is_what_build_py_reports(self, build):
+        iss = (REPO_ROOT / "installer.iss").read_text()
+        assert "OutputBaseFilename=AlbumStudio-Windows-Setup\n" in iss
+        assert build.INSTALLER_PATH == "installer_output/AlbumStudio-Windows-Setup.exe"
+
+    def test_iss_clears_old_libraries_on_upgrade(self):
+        # Setup copies over the old install; without this, DLLs from dropped
+        # dependencies linger in _internal/ forever.
+        iss = (REPO_ROOT / "installer.iss").read_text()
+        assert 'Type: filesandordirs; Name: "{app}\\_internal"' in iss
+
+
+class TestWindowsReleaseWorkflow:
+    """CI must ship both the installer and the portable zip."""
+
+    @pytest.fixture
+    def release_files(self):
+        """The release step's `files:` entries, in order."""
+        path = REPO_ROOT / ".github" / "workflows" / "build-release.yml"
+        return [line.strip() for line in path.read_text().splitlines()
+                if line.strip().startswith("artifacts/")]
+
+    def test_both_windows_downloads_are_published(self, release_files):
+        assert "artifacts/AlbumStudio-Windows-Setup.exe" in release_files
+        assert "artifacts/AlbumStudio-Windows-Portable.zip" in release_files
+
+    def test_zip_is_listed_before_the_installer(self, release_files):
+        # Copies released before the installer existed take the first asset
+        # whose name contains "windows" and can only unzip it.
+        assert (release_files.index("artifacts/AlbumStudio-Windows-Portable.zip")
+                < release_files.index("artifacts/AlbumStudio-Windows-Setup.exe"))
+
+    def test_workflow_installs_inno_setup(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "build-release.yml").read_text()
+        assert "choco install innosetup" in workflow
+
+
 def _capture_cmd_allowing_none(build, monkeypatch):
     captured = {}
 
