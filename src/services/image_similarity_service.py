@@ -237,30 +237,12 @@ class ImageSimilarityService:
         Returns:
             List of dicts with {'path': str, 'features': np.ndarray or None}
         """
-        if not os.path.exists(directory):
+        image_paths = list_images(directory, supported_formats)
+        if not image_paths:
             return []
 
         # Load cache
         cache = self._load_cache_from_disk(directory)
-
-        # Collect all image paths
-        image_paths = []
-        for filename in os.listdir(directory):
-            file_path = os.path.join(directory, filename)
-
-            # Skip directories and non-files
-            if not os.path.isfile(file_path):
-                continue
-
-            # Check if file has supported format
-            _, ext = os.path.splitext(filename)
-            if ext.lower() not in [fmt.lower() for fmt in supported_formats]:
-                continue
-
-            image_paths.append(file_path)
-
-        if not image_paths:
-            return []
 
         total = len(image_paths)
         images = []
@@ -359,11 +341,41 @@ class ImageSimilarityService:
             pass
 
 
+def list_images(directory: str, supported_formats: List[str]) -> List[str]:
+    """Photos directly inside directory (no recursion), or [] if it is missing."""
+    if not os.path.isdir(directory):
+        return []
+    formats = {fmt.lower() for fmt in supported_formats}
+    return [os.path.join(directory, name) for name in os.listdir(directory)
+            if os.path.isfile(os.path.join(directory, name))
+            and os.path.splitext(name)[1].lower() in formats]
+
+
+def comparison_directory_problem(directory: str,
+                                 supported_formats: List[str]) -> Optional[str]:
+    """Why directory cannot be searched, in words for the user, or None.
+
+    A missing or empty folder used to come back as "No similar images found.
+    Try lowering the minimum similarity threshold" — advice that cannot help.
+    """
+    explain = ("Find similar compares the photo against the photos you have "
+               "printed before, kept in the \"_past_printed\" folder inside "
+               "your workspace.")
+    if not os.path.isdir(directory):
+        return f"The comparison folder does not exist:\n{directory}\n\n{explain}"
+    if not list_images(directory, supported_formats):
+        return f"The comparison folder has no photos in it:\n{directory}\n\n{explain}"
+    return None
+
+
 class SimilaritySearchWorker(QThread):
     """Background worker for similarity search with progress updates."""
 
     progress_updated = pyqtSignal(int, int, str)  # current, total, message
     search_complete = pyqtSignal(list)  # list of similar images
+    # A failure must not arrive as search_complete([]): the dialog would show
+    # "No similar images found" for what was really an error.
+    search_failed = pyqtSignal(str)  # "<ExceptionType>: <message>"
 
     def __init__(
         self,
@@ -429,7 +441,7 @@ class SimilaritySearchWorker(QThread):
             print(f"Error in similarity search: {e}")
             import traceback
             traceback.print_exc()
-            self.search_complete.emit([])
+            self.search_failed.emit(f"{type(e).__name__}: {e}")
 
     def cancel(self):
         """Cancel the search operation."""

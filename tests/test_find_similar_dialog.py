@@ -9,11 +9,14 @@ wants a project, a similarity service and a config, and none of that has any
 bearing on how a result card is laid out.
 """
 
-from PyQt6.QtGui import QPixmap
-from PyQt6.QtWidgets import QFrame
+from types import SimpleNamespace
 
+from PyQt6.QtGui import QPixmap
+from PyQt6.QtWidgets import QDialog, QFrame, QLabel, QSlider, QSpinBox
+
+import src.ui.dialogs.find_similar_dialog as fsd
 from src.ui.dialogs.find_similar_dialog import (
-    RESULT_THUMBNAIL_SIZE, ImageThumbnail)
+    FindSimilarDialog, RESULT_THUMBNAIL_SIZE, ImageThumbnail)
 from src.ui.theme import CARD_OBJECT_NAME, card_size
 
 
@@ -83,3 +86,31 @@ class TestResultCard:
             Qt.KeyboardModifier.NoModifier))
 
         assert received == [image]
+
+
+class TestMissingComparisonFolder:
+    """A fresh install has no _past_printed folder. The dialog used to search
+    it anyway and answer "Try lowering the minimum similarity threshold"."""
+
+    def test_says_the_folder_is_missing_and_does_not_search(
+            self, qapp, tmp_path, monkeypatch):
+        dialog = FindSimilarDialog.__new__(FindSimilarDialog)
+        QDialog.__init__(dialog)
+        dialog.target_image = StubImage()
+        dialog.num_results_spin = QSpinBox()
+        dialog.min_similarity_slider = QSlider()
+        dialog.status_label = QLabel()
+        missing = str(tmp_path / "_past_printed")
+        dialog.config = SimpleNamespace(
+            get_comparison_directory=lambda: missing,
+            get_setting=lambda _key, default=None: [".jpg"])
+        warnings = []
+        monkeypatch.setattr(fsd.QMessageBox, "warning",
+                            lambda _parent, title, text: warnings.append(text))
+        monkeypatch.setattr(fsd, "SimilaritySearchWorker", lambda *a, **k: (
+            _ for _ in ()).throw(AssertionError("searched a missing folder")))
+
+        dialog.find_similar()
+
+        assert len(warnings) == 1 and "does not exist" in warnings[0]
+        assert "threshold" not in dialog.status_label.text()

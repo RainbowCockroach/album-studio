@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushBut
                              QFrame, QSizePolicy, QMessageBox,
                              QProgressDialog, QSlider, QSpinBox)
 from PyQt6.QtCore import Qt, pyqtSignal
-from ...services.image_similarity_service import SimilaritySearchWorker
+from ...services.image_similarity_service import (
+    SimilaritySearchWorker, comparison_directory_problem)
 from ..theme import (
     card_size, card_style, CARD_CAPTION_HEIGHT, CARD_OBJECT_NAME,
     CARD_PADDING, CARD_SPACING, CARD_TEXT_HEIGHT,
@@ -255,6 +256,12 @@ class FindSimilarDialog(QDialog):
         min_similarity = self.min_similarity_slider.value() / 100.0
         supported_formats = self.config.get_setting("supported_formats", [])
 
+        problem = comparison_directory_problem(comparison_dir, supported_formats)
+        if problem:
+            self.status_label.setText("Nothing to compare against")
+            QMessageBox.warning(self, "No Photos to Compare", problem)
+            return
+
         # Create progress dialog
         progress = QProgressDialog("Preparing similarity search...", "Cancel", 0, 100, self)
         progress.setWindowTitle("Finding Similar Images")
@@ -297,12 +304,23 @@ class FindSimilarDialog(QDialog):
             # Clean up worker
             worker.deleteLater()
 
+        def on_failed(error):
+            # Disconnect first: QProgressDialog.close() emits canceled(), which
+            # would overwrite this status with "Search cancelled" (CLAUDE.md).
+            progress.canceled.disconnect(on_cancel)
+            progress.close()
+            self.status_label.setText("Search failed")
+            QMessageBox.critical(self, "Find Similar Failed",
+                                 f"The similarity search failed.\n\n{error}")
+            worker.deleteLater()
+
         def on_cancel():
             worker.cancel()
             self.status_label.setText("Search cancelled")
 
         worker.progress_updated.connect(on_progress)
         worker.search_complete.connect(on_complete)
+        worker.search_failed.connect(on_failed)
         progress.canceled.connect(on_cancel)
 
         # Start the worker
