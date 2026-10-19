@@ -32,8 +32,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          # Pinned app deps plus pinned PyInstaller and hooks.
+          pip install -r requirements-dev.txt
 
       - name: Build macOS app
         run: python build.py macos
@@ -78,8 +78,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install pyinstaller
+          # Pinned app deps plus pinned PyInstaller and hooks.
+          pip install -r requirements-dev.txt
 
       # build.py aborts without Inno Setup rather than shipping a release with
       # no installer. choco is a no-op if the runner image already has it.

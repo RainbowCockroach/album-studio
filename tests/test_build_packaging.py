@@ -238,7 +238,7 @@ class TestWindowsInstaller:
             '__version_base__ = "1.4"\n__version__ = "1.4.87"\n')
 
     @pytest.fixture
-    def bundle(self, tmp_path):
+    def bundle(self, tmp_path, build):
         """A bundle shaped like PyInstaller's: a top-level runtime, Qt's own
         2020 copy in Qt6/bin, and numpy's private hashed copy."""
         b = tmp_path / "_internal"
@@ -251,9 +251,22 @@ class TestWindowsInstaller:
             path.write_text(ver)
         sys32 = tmp_path / "System32"
         sys32.mkdir()
-        for name in ["msvcp140.dll", "MSVCP140.dll", "vcruntime140.dll"]:
+        for name in build.APP_LOCAL_MSVC_RUNTIME:
             (sys32 / name).write_text("14.50")
         return b, sys32
+
+    def test_runtime_missing_from_the_bundle_is_added(self, build, bundle):
+        # torch_cpu.dll imports vcruntime140_threads.dll, which PyInstaller
+        # never collected; the build PC had it, a clean PC would not.
+        b, sys32 = bundle
+        build.upgrade_bundled_msvc_runtime(str(b), str(sys32), self._read)
+        assert (b / "vcruntime140_threads.dll").read_text() == "14.50"
+
+    def test_build_machine_without_the_runtime_aborts(self, build, bundle):
+        b, sys32 = bundle
+        (sys32 / "vcruntime140_threads.dll").unlink()
+        with pytest.raises(SystemExit):
+            build.upgrade_bundled_msvc_runtime(str(b), str(sys32), self._read)
 
     @staticmethod
     def _read(path):
@@ -351,11 +364,38 @@ class TestWindowsInstaller:
         assert "OutputBaseFilename=AlbumStudio-Windows-Setup\n" in iss
         assert build.INSTALLER_PATH == "installer_output/AlbumStudio-Windows-Setup.exe"
 
+    def test_iss_refuses_windows_older_than_qt_supports(self):
+        iss = (REPO_ROOT / "installer.iss").read_text()
+        assert "MinVersion=10.0.17763" in iss
+
     def test_iss_clears_old_libraries_on_upgrade(self):
         # Setup copies over the old install; without this, DLLs from dropped
         # dependencies linger in _internal/ forever.
         iss = (REPO_ROOT / "installer.iss").read_text()
         assert 'Type: filesandordirs; Name: "{app}\\_internal"' in iss
+
+
+class TestPinnedRequirements:
+    """Every build must install the same versions.
+
+    Unpinned torch/torchvision meant each build took whatever was newest that
+    day; torch 2.9+ beside PyQt6 and torchvision 0.29's renamed extension both
+    broke "Find similar" on Windows while every test stayed green.
+    """
+
+    @pytest.mark.parametrize("name", ["requirements.txt", "requirements-dev.txt"])
+    def test_every_requirement_is_an_exact_pin(self, name):
+        lines = [l.split("#")[0].strip()
+                 for l in (REPO_ROOT / name).read_text().splitlines()]
+        reqs = [l for l in lines if l and not l.startswith("-r")]
+        loose = [r for r in reqs if "==" not in r]
+        assert reqs and not loose, f"{name} has unpinned requirements: {loose}"
+
+    def test_ci_installs_the_pinned_build_tools(self):
+        workflow = (REPO_ROOT / ".github" / "workflows" / "build-release.yml").read_text()
+        assert "pip install -r requirements-dev.txt" in workflow
+        assert "pip install pyinstaller" not in workflow, (
+            "an unpinned PyInstaller in CI undoes the pin in requirements-dev.txt")
 
 
 class TestWindowsReleaseWorkflow:

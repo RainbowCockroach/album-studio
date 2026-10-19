@@ -36,6 +36,9 @@ Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
+; Qt 6 needs Windows 10 1809 (build 17763) or newer. Without this Setup would
+; install on an older Windows and the app would fail to start, with no reason.
+MinVersion=10.0.17763
 ; Per-user install into %LOCALAPPDATA%\Programs: no admin prompt, and the
 ; in-app updater can re-run Setup silently. Deliberately no "install for all
 ; users" option: a silent update always installs per-user, so an all-users

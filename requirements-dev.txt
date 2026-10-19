@@ -5,10 +5,13 @@
 -r requirements.txt
 
 # Build tools
-pyinstaller>=6.0.0
+# Pinned with the app: the hooks package decides what gets bundled, and its
+# torchvision hook already lags torchvision (see TORCHVISION_EXTENSION in build.py).
+pyinstaller==6.22.3
+pyinstaller-hooks-contrib==2026.8
 
 # Testing
-pytest>=8.0.0
+pytest==9.1.1
 
 # Code quality (optional)
 # pylint>=3.0.0

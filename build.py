@@ -155,8 +155,15 @@ def dll_file_version(path):
 # Hashed copies (numpy.libs/msvcp140-<hash>.dll) are private and left alone.
 MSVC_RUNTIME_DLLS = {
     'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'msvcp140_atomic_wait.dll',
-    'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll',
+    'vcruntime140.dll', 'vcruntime140_1.dll', 'vcruntime140_threads.dll',
+    'concrt140.dll',
 }
+
+# Shipped beside the app whatever PyInstaller collected: none of these are part
+# of Windows itself, only of the VC++ Redistributable. torch_cpu.dll imports
+# vcruntime140_threads.dll, which PyInstaller never bundled — the build PC had
+# it from some other program, and a clean PC would not.
+APP_LOCAL_MSVC_RUNTIME = sorted(MSVC_RUNTIME_DLLS)
 
 
 def _bundled_runtime_dlls(bundle_dir):
@@ -179,6 +186,19 @@ def upgrade_bundled_msvc_runtime(bundle_dir, system32, read_version=dll_file_ver
         if source.exists() and read_version(str(source)) > read_version(str(dll)):
             shutil.copy2(source, dll)
             print(f"[note] upgraded {dll.relative_to(bundle_dir)}")
+
+    # Then make sure the whole runtime sits at the bundle root, so the app
+    # never depends on what the user's PC happens to have installed.
+    present = {p.name.lower() for p in Path(bundle_dir).iterdir()}
+    for name in APP_LOCAL_MSVC_RUNTIME:
+        source = Path(system32) / name
+        if name not in present:
+            if not source.exists():
+                print(f"\n[ERROR] {name} is not in {system32}; install the latest "
+                      "VC++ Redistributable on the build machine.")
+                sys.exit(1)
+            shutil.copy2(source, Path(bundle_dir) / name)
+            print(f"[note] added {name}")
 
 
 def check_bundled_msvc_runtime(bundle_dir, read_version=dll_file_version):
