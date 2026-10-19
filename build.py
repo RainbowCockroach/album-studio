@@ -16,6 +16,11 @@ ENTRY_POINT = 'run.py'
 
 APP_NAME = 'AlbumStudio'
 VOLUME_NAME = 'Album Studio'
+# torchvision's compiled operators. PyInstaller's torchvision hook still asks
+# for the pre-0.29 name `torchvision._C`, so `_C_stable` was silently left out
+# and "Find similar" failed with "operator torchvision::nms does not exist".
+TORCHVISION_EXTENSION = '--hidden-import=torchvision._C_stable'
+
 APP_PATH = f'dist/{APP_NAME}.app'
 DMG_PATH = f'dist/{APP_NAME}.dmg'
 
@@ -55,6 +60,7 @@ def build_macos():
         require_icon('assets/icon.icns'),
         '--add-data=config:config',  # Bundled defaults: settings + size groups
         '--add-data=assets:assets',  # DSEG7 date-stamp font + window icon
+        TORCHVISION_EXTENSION,
         '--noconfirm',
         ENTRY_POINT
     ]
@@ -76,12 +82,124 @@ def build_windows():
         require_icon('assets/icon.ico'),
         '--add-data=config;config',  # Windows uses a semicolon separator
         '--add-data=assets;assets',  # DSEG7 date-stamp font + window icon
+        TORCHVISION_EXTENSION,
         '--noconfirm',
         ENTRY_POINT
     ]
 
-    subprocess.run(cmd, check=True)
+    subprocess.run(cmd, check=True, env=system32_first_env())
+    bundle = f'dist/{APP_NAME}/_internal'
+    upgrade_bundled_msvc_runtime(
+        bundle, os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32'))
+    check_bundled_msvc_runtime(bundle)
+    check_bundled_torchvision_ops(f'dist/{APP_NAME}/_internal/torchvision')
     print(f"\n[OK] Windows build complete! Check dist/{APP_NAME}/")
+
+
+# torch's c10.dll fails to initialise (WinError 1114) on anything older.
+MIN_MSVC_RUNTIME = (14, 40)
+
+
+def system32_first_env():
+    """os.environ with System32 moved to the front of PATH.
+
+    PyInstaller bundles the first msvcp140.dll it finds on PATH. Any program
+    that puts its own folder ahead of System32 decides the app's C++ runtime
+    — a JDK 11 did exactly that and shipped a 2018 copy that broke torch.
+    """
+    # Read from os.environ, not the copy: on Windows only os.environ ignores
+    # case, and the copy holds "SYSTEMROOT", so .get('SystemRoot') would miss.
+    env = dict(os.environ)
+    system32 = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32')
+    rest = [p for p in os.environ.get('PATH', '').split(os.pathsep)
+            if p and os.path.normcase(p.rstrip('\\')) != os.path.normcase(system32)]
+    env['PATH'] = os.pathsep.join([system32] + rest)
+    return env
+
+
+def check_bundled_torchvision_ops(torchvision_dir):
+    """Abort if torchvision's compiled extension is missing from the bundle.
+
+    The app still builds and launches without it; only "Find similar" fails.
+    A future rename of the module would drop it again, so check the result.
+    """
+    found = list(Path(torchvision_dir).glob('_C*.pyd')) + \
+        list(Path(torchvision_dir).glob('_C*.so'))
+    if not found:
+        print(f"\n[ERROR] No torchvision _C extension in {torchvision_dir}.")
+        print("        Find its current name in site-packages/torchvision and "
+              "update TORCHVISION_EXTENSION in build.py.")
+        sys.exit(1)
+    print(f"[OK] Bundled torchvision extension {found[0].name}")
+
+
+def dll_file_version(path):
+    """Return a Windows DLL's file version as a tuple, e.g. (14, 50, 35719, 0)."""
+    import ctypes
+    from ctypes import wintypes
+    version = ctypes.WinDLL('version')  # type: ignore[attr-defined]
+    size = version.GetFileVersionInfoSizeW(path, None)
+    if not size:
+        raise OSError(f"no version info in {path}")
+    buf = ctypes.create_string_buffer(size)
+    version.GetFileVersionInfoW(path, 0, size, buf)
+    info = ctypes.c_void_p()
+    length = wintypes.UINT()
+    version.VerQueryValueW(buf, '\\', ctypes.byref(info), ctypes.byref(length))
+    # VS_FIXEDFILEINFO: dwFileVersionMS / dwFileVersionLS are DWORDs 2 and 3.
+    ms, ls = ctypes.cast(info, ctypes.POINTER(wintypes.DWORD))[2:4]
+    return (ms >> 16, ms & 0xFFFF, ls >> 16, ls & 0xFFFF)
+
+
+# The Microsoft C++ runtime files that packages bundle under their plain names.
+# Hashed copies (numpy.libs/msvcp140-<hash>.dll) are private and left alone.
+MSVC_RUNTIME_DLLS = {
+    'msvcp140.dll', 'msvcp140_1.dll', 'msvcp140_2.dll', 'msvcp140_atomic_wait.dll',
+    'vcruntime140.dll', 'vcruntime140_1.dll', 'concrt140.dll',
+}
+
+
+def _bundled_runtime_dlls(bundle_dir):
+    return [p for p in Path(bundle_dir).rglob('*.dll')
+            if p.name.lower() in MSVC_RUNTIME_DLLS]
+
+
+def upgrade_bundled_msvc_runtime(bundle_dir, system32, read_version=dll_file_version):
+    """Replace every bundled C++ runtime DLL older than System32's copy.
+
+    PyQt6 ships its own 2020 runtime (14.26) in Qt6/bin, and Windows loads it
+    for Qt from there; torch's c10.dll then gets that old copy and fails with
+    WinError 1114. Preloading a newer copy at startup does not stop it — Qt
+    still loads its own beside it. So no old copy may be left in the bundle.
+    Microsoft keeps every v14 runtime backward compatible, so Qt runs fine on
+    the newer one.
+    """
+    for dll in _bundled_runtime_dlls(bundle_dir):
+        source = Path(system32) / dll.name
+        if source.exists() and read_version(str(source)) > read_version(str(dll)):
+            shutil.copy2(source, dll)
+            print(f"[note] upgraded {dll.relative_to(bundle_dir)}")
+
+
+def check_bundled_msvc_runtime(bundle_dir, read_version=dll_file_version):
+    """Abort if any bundled msvcp140.dll is too old for torch, or none exists.
+
+    An old copy builds and launches fine; only "Find similar" breaks, and only
+    on Windows — so the build has to be the one to notice.
+    """
+    copies = [p for p in _bundled_runtime_dlls(bundle_dir)
+              if p.name.lower() == 'msvcp140.dll']
+    if not copies:
+        print(f"\n[ERROR] No msvcp140.dll in {bundle_dir}.")
+        sys.exit(1)
+    need = '.'.join(map(str, MIN_MSVC_RUNTIME))
+    for dll in copies:
+        found = read_version(str(dll))
+        if found[:2] < MIN_MSVC_RUNTIME:
+            print(f"\n[ERROR] {dll} is {'.'.join(map(str, found))}; torch needs {need}+.")
+            print("        Update the Visual C++ Redistributable on this machine.")
+            sys.exit(1)
+    print(f"[OK] All {len(copies)} bundled msvcp140.dll copies are {need}+")
 
 
 def detach_stale_volume():
@@ -182,10 +300,16 @@ def read_app_version():
 
 
 def find_iscc():
-    """Locate Inno Setup's compiler, or None."""
+    """Locate Inno Setup's compiler, or None.
+
+    A per-user install (`winget install --scope user`) lands under
+    %LOCALAPPDATA%\\Programs and is not put on PATH, so it is checked by hand.
+    """
     for path in [
         r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
         r"C:\Program Files\Inno Setup 6\ISCC.exe",
+        os.path.join(os.environ.get('LOCALAPPDATA', ''),
+                     'Programs', 'Inno Setup 6', 'ISCC.exe'),
     ]:
         if os.path.exists(path):
             return path

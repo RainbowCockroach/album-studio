@@ -1,6 +1,28 @@
 import os
 import sys
-from PyQt6.QtWidgets import QApplication
+
+
+def ensure_std_streams():
+    """Give a console-less app somewhere to write.
+
+    A windowed PyInstaller build has no console, so sys.stdout and sys.stderr
+    are None and any write raises AttributeError. torch's model download
+    writes a progress bar to stderr, which broke the first "Find similar" on
+    Windows with "'NoneType' object has no attribute 'write'".
+    """
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w")
+
+
+ensure_std_streams()
+
+# Before any PyQt6 import, or Qt's old C++ runtime breaks torch on Windows.
+from .utils.msvc_runtime import preload_msvc_runtime
+preload_msvc_runtime()
+
+from PyQt6.QtWidgets import QApplication  # noqa: E402
 from PyQt6.QtGui import QIcon
 from .ui.main_window import MainWindow
 from .ui.theme import GLOBAL_STYLESHEET

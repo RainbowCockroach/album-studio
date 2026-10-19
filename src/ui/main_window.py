@@ -1209,9 +1209,18 @@ class MainWindow(QMainWindow):
                     "Install with: pip install torch torchvision"
                 )
                 return
-            except Exception:
+            except Exception as e:
+                # Never just print: the packaged app has no console, so a
+                # printed traceback made the button silently do nothing (a
+                # torch DLL failure on Windows raises OSError, not ImportError).
                 import traceback
                 traceback.print_exc()
+                QMessageBox.critical(
+                    self,
+                    "Find Similar Unavailable",
+                    "The image similarity engine could not be loaded.\n\n"
+                    f"{type(e).__name__}: {e}"
+                )
                 return
 
         # Show the dialog

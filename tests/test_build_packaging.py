@@ -129,7 +129,10 @@ class TestDmg:
             # Inspect the staging dir now: build_dmg deletes it afterwards.
             srcfolder = cmd[cmd.index("-srcfolder") + 1]
             staged["has_app"] = os.path.isdir(f"{srcfolder}/AlbumStudio.app")
-            staged["drop_link"] = os.path.realpath(f"{srcfolder}/Applications")
+            # readlink, not realpath: realpath resolves against the local
+            # drive on Windows ("C:\\Applications"), and would also pass a
+            # plain folder named Applications that is not a link at all.
+            staged["drop_link"] = os.readlink(f"{srcfolder}/Applications")
             return None
 
         monkeypatch.setattr(build.subprocess, "run", fake_run)
@@ -233,6 +236,87 @@ class TestWindowsInstaller:
         (tmp_path / "src").mkdir()
         (tmp_path / "src" / "version.py").write_text(
             '__version_base__ = "1.4"\n__version__ = "1.4.87"\n')
+
+    @pytest.fixture
+    def bundle(self, tmp_path):
+        """A bundle shaped like PyInstaller's: a top-level runtime, Qt's own
+        2020 copy in Qt6/bin, and numpy's private hashed copy."""
+        b = tmp_path / "_internal"
+        qt = b / "PyQt6" / "Qt6" / "bin"
+        qt.mkdir(parents=True)
+        (b / "numpy.libs").mkdir()
+        for path, ver in [(b / "msvcp140.dll", "14.16"), (qt / "MSVCP140.dll", "14.26"),
+                          (qt / "VCRUNTIME140.dll", "14.26"),
+                          (b / "numpy.libs" / "msvcp140-abc123.dll", "14.40")]:
+            path.write_text(ver)
+        sys32 = tmp_path / "System32"
+        sys32.mkdir()
+        for name in ["msvcp140.dll", "MSVCP140.dll", "vcruntime140.dll"]:
+            (sys32 / name).write_text("14.50")
+        return b, sys32
+
+    @staticmethod
+    def _read(path):
+        return tuple(int(x) for x in Path(path).read_text().split("."))
+
+    def test_every_old_runtime_copy_is_upgraded(self, build, bundle):
+        # Qt's own copy is the one that matters: a preload at startup did not
+        # stop Qt loading it, and torch's c10.dll then failed (WinError 1114).
+        b, sys32 = bundle
+        build.upgrade_bundled_msvc_runtime(str(b), str(sys32), self._read)
+        assert (b / "msvcp140.dll").read_text() == "14.50"
+        assert (b / "PyQt6" / "Qt6" / "bin" / "MSVCP140.dll").read_text() == "14.50"
+        assert (b / "PyQt6" / "Qt6" / "bin" / "VCRUNTIME140.dll").read_text() == "14.50"
+        assert (b / "numpy.libs" / "msvcp140-abc123.dll").read_text() == "14.40"
+
+    def test_old_qt_runtime_aborts_the_build(self, build, bundle):
+        # The top-level copy alone being current is not enough.
+        b, _ = bundle
+        (b / "msvcp140.dll").write_text("14.50")
+        with pytest.raises(SystemExit):
+            build.check_bundled_msvc_runtime(str(b), self._read)
+
+    def test_upgraded_bundle_passes(self, build, bundle):
+        b, sys32 = bundle
+        build.upgrade_bundled_msvc_runtime(str(b), str(sys32), self._read)
+        build.check_bundled_msvc_runtime(str(b), self._read)
+
+    def test_bundle_without_a_runtime_aborts(self, build, tmp_path):
+        with pytest.raises(SystemExit):
+            build.check_bundled_msvc_runtime(str(tmp_path), self._read)
+
+    @pytest.mark.parametrize("builder", ["build_macos", "build_windows"])
+    def test_torchvision_extension_is_collected(self, build, monkeypatch, builder):
+        # PyInstaller's hook asks for the pre-0.29 name torchvision._C, so
+        # _C_stable was left out: "operator torchvision::nms does not exist".
+        monkeypatch.chdir(REPO_ROOT)
+        assert "--hidden-import=torchvision._C_stable" in _capture_cmd(
+            build, monkeypatch, builder)
+
+    def test_missing_torchvision_extension_aborts(self, build, tmp_path):
+        with pytest.raises(SystemExit):
+            build.check_bundled_torchvision_ops(str(tmp_path))
+        (tmp_path / "_C_stable.pyd").write_text("")
+        build.check_bundled_torchvision_ops(str(tmp_path))
+
+    def test_pyinstaller_sees_system32_first(self, build, monkeypatch):
+        monkeypatch.setenv("SystemRoot", r"C:\WINDOWS")
+        monkeypatch.setenv("PATH", os.pathsep.join(
+            [r"C:\jdk\bin", r"C:\WINDOWS\system32", r"C:\tools"]))
+        parts = build.system32_first_env()["PATH"].split(os.pathsep)
+        assert parts[0] == os.path.join(r"C:\WINDOWS", "System32")
+        assert parts[1:] == [r"C:\jdk\bin", r"C:\tools"]
+
+    def test_finds_a_per_user_inno_setup(self, build, monkeypatch, tmp_path):
+        # winget --scope user installs here and does not touch PATH.
+        iscc = tmp_path / "Programs" / "Inno Setup 6" / "ISCC.exe"
+        iscc.parent.mkdir(parents=True)
+        iscc.write_text("")
+        monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+        monkeypatch.setattr(build.os.path, "exists",
+                            lambda p: os.path.normcase(p) == os.path.normcase(str(iscc)))
+        monkeypatch.setattr(build.shutil, "which", lambda _: None)
+        assert build.find_iscc() == str(iscc)
 
     def test_missing_inno_setup_aborts(self, build, monkeypatch, built_app):
         # It used to print [SKIP] and exit 0, so CI would publish a release
